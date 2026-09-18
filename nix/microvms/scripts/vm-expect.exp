@@ -1,0 +1,31 @@
+#!/usr/bin/env expect
+# nix/microvms/scripts/vm-expect.exp
+#
+# Run one command in the guest over its serial-console TCP port and return the output.
+# Usage: vm-expect.exp <port> <hostname> <command> <timeout>
+#
+# Connects with `nc` to 127.0.0.1:<port>, waits for the `root@<hostname>...#` prompt, sends
+# the command, waits for the next prompt, and prints what came back (the caller greps it for
+# sentinel markers).
+
+set port     [lindex $argv 0]
+set hostname [lindex $argv 1]
+set command  [lindex $argv 2]
+set timeout  [lindex $argv 3]
+
+spawn nc 127.0.0.1 $port
+
+# Nudge the console and wait for a shell prompt.
+send "\r"
+expect {
+    -re "root@$hostname\[^#\]*# $" {}
+    timeout { puts "EXPECT_TIMEOUT waiting for prompt"; exit 2 }
+}
+
+send "$command\r"
+expect {
+    -re "root@$hostname\[^#\]*# $" {}
+    timeout { puts "EXPECT_TIMEOUT waiting for command completion"; exit 3 }
+}
+
+exit 0

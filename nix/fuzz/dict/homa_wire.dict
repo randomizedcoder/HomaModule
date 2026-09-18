@@ -1,0 +1,17 @@
+# nix/fuzz/dict/homa_wire.dict — libFuzzer dictionary for Homa wire formats.
+# The packet-type byte (enum homa_packet_type) lives at offset 11 of every header; feeding
+# these values steers the fuzzer toward exercising each per-type parser.
+type_data="\x10"
+type_grant="\x11"
+type_resend="\x12"
+type_rpc_unknown="\x13"
+type_busy="\x14"
+type_cutoffs="\x15"
+type_freeze="\x16"
+type_need_ack="\x17"
+type_ack="\x18"
+# doff for a standard 5-word TCP-style header (non-DATA packets expect 5<<4).
+doff_five="\x50"
+# Common sentinel offsets/lengths that hit boundary conditions.
+zero32="\x00\x00\x00\x00"
+neg32="\xff\xff\xff\xff"
