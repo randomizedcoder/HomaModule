@@ -5,37 +5,38 @@
 
 | | |
 |---|---|
-| **Branch** | `nix-flake` |
-| **Current phase** | Phase 10 complete — reports written; follow-ups tracked below |
-| **Last update** | 2026-09-18 |
-| **nixpkgs** | `nixos-unstable` (evaluates as 26.11) |
-| **Default kernel** | `linuxPackages_6_12` (6.12.110) — newest kernel in this nixpkgs that builds Homa |
+| **Branch** | `nix-flake` (rebased on upstream `main` = `ae45ada`) |
+| **Current phase** | Round 2 — analysis + real-code fuzzing done; candidates in `analysis-reports/round2/` |
+| **Last update** | 2026-10-21 |
+| **nixpkgs** | `nixos-unstable` |
+| **Default kernel** | `linuxPackages_6_18` (6.18.57 LTS) |
 
 ## Key outcome — kernel selection
-- `linux_latest` = **7.2.6**; `homa.ko` does **not** build against it (upstream API drift).
-- 6.16 / 6.17 / 6.19 are **EOL-removed** from this nixpkgs (it is 2026).
-- **6.12.110 LTS is the newest kernel that builds Homa** → chosen as default.
-- `homa-module-latest` kept to reproduce the 7.2.6 drift over time.
+- 6.18.40+ backported the recvmsg `addr_len` removal and 6.18.57 the `sockaddr_unsized`
+  bind change. Homa's version gates key off 6.19 and 7.1, so **`homa.ko` from `main` does
+  not build on 6.18.57** until the round-2 compat fix lands
+  (see `analysis-reports/round2/static-analysis-report.md`).
+- 6.12.x LTS and 6.19.x build. 7.2.x fails in `homa_offload.c` (RPS API); that's a
+  separate 7.x port.
+- The unit tests and fuzz-mock don't need a building module: they use the hermetic
+  `nix/unit-kdir` (6.18.57 headers + `homa_unit_compat.h`).
 
 ## What builds (verified `nix build`)
 | Target | Status |
 |---|---|
 | `nix flake show` (all outputs) | ✅ evaluates |
-| `homa-module`, `homa-module-debug` | ✅ `homa.ko` (6.12) |
-| `homa-module-6_12` (and `-6_1`,`-6_6` matrix) | ✅ |
-| `homa-module-latest` (7.2.6) | ❌ expected drift (documented) |
-| `homa-utils` | ✅ util/ tools compile |
-| `homa-tests` | ❌ `-Werror` drift vs 6.12 (needs Homa's ~6.17 target) |
-| `homa-image` (OCI) | ✅ tar.gz |
-| `analysis-quick` | ✅ ruff 2319 / shell 5 / clang-format 35 |
-| `analysis-cppcheck` | ✅ 22 findings |
-| `analysis-sparse` | ✅ 974 raw (mostly header noise) |
-| `analysis-standard` (clang-tidy) | ✅ 2130 findings (best-effort) |
-| `fuzz`, `fuzz-run` | ✅ standalone harnesses, 0 crashes |
-| `fuzz-cov` | ✅ 100% coverage of the wire decoder |
+| `homa-module` (6.18.57) | ❌ upstream recvmsg/bind break (fix is round-2 candidate 1) |
+| `homa-module-6_12` | ✅ |
+| `homa-module-latest` (7.2.x) | ❌ expected drift (`homa_offload.c` RPS) |
+| `homa-utils` | ✅ |
+| `homa-tests` | ✅ builds and passes (hermetic 6.18 unit KDIR) |
+| `analysis-deep` | ✅ ruff 1973 / shell 4 / clang-format 35 / cppcheck 16 / clang-tidy 1210* / sparse 333* / smatch 16* |
+| `fuzz`, `fuzz-run`, `fuzz-cov` | ✅ standalone decoder harnesses |
 | `fuzz-selftest` | ✅ PASS (canary catches injected overflow) |
-| `fuzz-mock` (Focus A/B real code) | ⚠️ 20/23 TUs compile w/ clang; 3 block (percpu/preempt/min-signedness) |
-| `homa-microvm*` | ⏳ not yet built here (heavy: guest+kernel); scaffolding complete + evaluates |
+| `fuzz-mock` | ✅ 10 real-code harnesses through `homa_softirq`; smoke gate vs `nix/fuzz/known-findings.txt` |
+| `homa-microvm*` | ⏳ evaluates; boot not yet run here |
+
+\* Truncated by the 6.18.57 build break. On the compat-fixed tree: clang-tidy 2202, sparse 980, smatch 38.
 
 ## Phase checklist
 - [x] **Phase 0 — Branch.** `nix-flake`.
@@ -48,13 +49,13 @@
 - [x] **Phase 7 — Static analysis** (`analysis/*`) — quick ✅, cppcheck ✅, clang-tidy ✅ (2130), sparse ✅.
 - [x] **Phase 8 — Fuzzing** (`fuzz/*`) — Focus C + selftest + cov ✅; Focus A/B best-effort (3 TUs to unblock).
 - [x] **Phase 9 — flake.nix usage header** ✅ (mirrored in `README.md`).
-- [x] **Phase 10 — Reports** — `analysis-reports/{static-analysis,fuzzing}-report.md` ✅.
+- [x] **Phase 10 — Reports** — `analysis-reports/round1/` ✅.
+- [x] **Round 2** — rebase on main, 6.18 default, hermetic unit KDIR, real-code fuzz-mock, `analysis-reports/round2/` ✅.
 
 ## Open follow-ups
-1. **fuzz-mock:** add a force-included `fuzz_compat.h` shim for x86 per-cpu/preempt +
-   `__modver_version_show`, and resolve the `min()` signedness in `homa_outgoing.c`, to
-   unblock the Focus A/B real-code harnesses (3 translation units).
+1. **fuzz-mock:** ✅ done in round 2 (`nix/fuzz/harness/mock/`, `build-mock-fuzzers.sh`).
+   Remove entries from `nix/fuzz/known-findings.txt` as upstream fixes land.
 2. **homa-microvm boot:** exercise `nix run .#homa-microvm-test` on a KVM-capable host
    (builds the guest + boots QEMU).
-3. **homa-tests / newer kernels:** revisit when nixpkgs carries a non-EOL build of Homa's
-   target kernel (~6.17+), or when Homa `main` supports 7.x.
+3. **homa-module on 6.18.57:** goes green once the 6.18 LTS compat fix lands upstream.
+4. **7.x:** revisit after the upstream 7.x porting series (PR #110) is applied.
