@@ -8,8 +8,8 @@
 #   fuzz-deep     fork-mode + dictionary + crash dedup
 #   fuzz-cov      llvm-cov of the wire decoder
 #   fuzz-selftest canary gate (fails if the harness is vacuous)
-#   fuzz-mock     kernel-mock harnesses (Focus A/B: per-type parse, dispatch, gro, roundtrip,
-#                 differential) — kernel-header dependent, best-effort (reports what built)
+#   fuzz-mock     kernel-mock harnesses: real homa_softirq receive path + per-type pinned
+#                 variants on the unit-test mock layer (gate: all build + seeds run clean)
 #
 # Usage in flake.nix:
 #   fuzzPkgs = import ./nix/fuzz { inherit pkgs lib; src = self; };
@@ -32,7 +32,7 @@ let
   # Kernel-mock target only when a kernelConfig was provided.
   mockAttrs = lib.optionalAttrs (kernelConfig != null) {
     fuzz-mock = import ./tools/fuzz-mock.nix {
-      inherit pkgs lib src kernelConfig sanFlags symbolizer;
+      inherit pkgs lib src kernelConfig symbolizer;
     };
   };
 in
