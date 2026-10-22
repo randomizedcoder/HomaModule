@@ -9,7 +9,7 @@
 #
 # Usage in flake.nix:
 #   kernelConfig = import ./nix/kernel.nix { inherit pkgs lib; };
-#   kernelConfig.kernelPackages   # default (linux_latest)
+#   kernelConfig.kernelPackages   # default (6.18 LTS)
 #   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
 #   kernelConfig.matrix           # { "6_12" = <kernelPackages>; ... } (only those present)
 
@@ -17,11 +17,11 @@
 , lib
   # Override the default kernel by passing another kernelPackages set.
   #
-  # Default = 6.12 LTS: it is the newest kernel in this nixpkgs that actually builds Homa.
-  # `main` targets ~6.17 (now EOL-removed from nixpkgs), and nixpkgs `linux_latest` (7.2.x)
-  # fails to build the module (upstream API drift, not a flake bug — see docs/STATUS.md).
-  # `latest` below is still exposed so the drift can be reproduced / re-checked over time.
-, kernelPackages ? pkgs.linuxPackages_6_12
+  # Default = 6.18 LTS. Homa `main` targets ~6.17 (its unit harness vendors 6.17.8 rbtree/
+  # rhashtable/xxhash for kernels < 7.0) and compiles under 7.0.14; 6.17 and 7.0 are both
+  # EOL-removed from nixpkgs, so 6.18 LTS is the closest supported kernel. `latest` below
+  # is still exposed so newer-kernel drift can be re-checked over time.
+, kernelPackages ? pkgs.linuxPackages_6_18
 }:
 
 let
@@ -33,7 +33,7 @@ let
 
   # Compile-test matrix: candidate kernelPackages by version. Some attrs exist but throw on
   # access (EOL kernels), so each is probed with tryEval and only usable ones are kept.
-  candidateNames = [ "6_1" "6_6" "6_12" "6_16" "6_17" ];
+  candidateNames = [ "6_1" "6_6" "6_12" "6_18" ];
   kpFor = name: pkgs."linuxPackages_${name}" or null;
   usable = name:
     let
