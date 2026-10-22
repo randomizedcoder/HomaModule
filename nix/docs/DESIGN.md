@@ -143,7 +143,10 @@ For a kernel module, a container is the wrong unit — you need a real kernel. T
 - **The test runs inside the guest** (xtcp2 pattern). With `autoTest = true`, `smoke.nix`
   runs as a systemd oneshot with `StandardOutput=journal+console`: `insmod` →
   `/proc/modules` → loopback echo RPCs (`demo_server1` ← `demo_client1`, 6 messages from
-  100 B to 1 MB, through sendmsg and recvmsg) → `rmmod` → dmesg gate. It prints
+  100 B to 1 MB, through sendmsg and recvmsg) → the same echo between two network
+  namespaces over veth with GRO on, TSO off (veth only uses GRO then) and
+  `rps_sock_flow_entries` set, with kprobes requiring calls to `homa_gro_receive` and
+  `homa_set_softirq_cpu` (the RPS flow-table code that 7.1 changed) → `rmmod` → dmesg gate. It prints
   `HOMA_SMOKE_<phase>_OK` lines, then `HOMA_SMOKE_PASS` or `HOMA_SMOKE_FAIL:<phase>`, and
   powers the VM off.
 - `lib.nix` on the host only boots the runner under `timeout`, captures the console, and
