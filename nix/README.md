@@ -12,14 +12,19 @@ and (de)serialization-focused fuzzing.
 ```sh
 nix develop                          # dev shell (toolchain + analysis tools)
 
-nix build .#homa-module              # homa.ko (release) against the pinned kernel
+nix build .#homa-module              # homa.ko (release) against the default kernel (7.3)
 nix build .#homa-module-debug        # homa.ko (debug: -g -O1)
-nix build .#homa-module-6_12         # against the 6.12 LTS kernel (drift fallback)
+nix build .#homa-module-6_12         # per kernel: 6_1 6_6 6_12 6_18 7_3 (nixpkgs),
+                                     #   7_0 7_1 7_2 (kernel.org source, compile check only)
+nix build .#homa-build-matrix        # every kernel above -> result/summary.md (never fails)
+HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-module-local   # your checkout
 nix build .#homa-utils[-debug]       # user-space tools (util/); -debug adds ASan
 nix build .#homa-tests               # build + run the unit tests (ASan)
 
-nix run   .#homa-microvm-test        # boot a microVM, insmod homa.ko, smoke-test it
+nix run   .#homa-microvm-test        # boot a microVM, insmod homa.ko, loopback echo RPCs
+nix run   .#homa-microvm-test-6_12   # ... per nixpkgs kernel: 6_1 6_6 6_12 6_18 7_3
 nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel
+nix run   .#homa-microvm-7_3         # interactive guest (root autologin)
 
 nix build .#homa-image[-debug]       # OCI userspace image (docker load < result)
 
@@ -43,14 +48,16 @@ nix flake check                      # run the checks
 
 | File | Concern |
 |---|---|
-| `kernel.nix` | kernel selection (`linux_latest`) + `KDIR` + LTS matrix |
+| `kernel.nix` | kernel selection (`linux_latest`) + `KDIR` + per-series matrix |
+| `kernel-src.nix` | prepared kernel trees from kernel.org tarballs or a local checkout |
+| `patches/` | upstream-pending Homa fixes the flake applies (7.1+ build) |
 | `packages.nix` | toolchain inventory (build deps, dev/analysis tools, python env) |
 | `env-vars.nix` | dev-shell environment fragment |
-| `module.nix` | `homa.ko` derivations (debug/release + matrix) |
+| `module.nix` | `homa.ko` derivations (debug/release, per kernel) + `homa-build-matrix` |
 | `userspace.nix` | `util/` tools + `test/` unit harness |
 | `devshell.nix` + `shell-functions/` | the dev shell |
 | `oci.nix` | user-space OCI image |
-| `microvms/` | microVM guest + orchestrator (loads/tests `homa.ko`) |
+| `microvms/` | per-kernel microVM guests + in-guest smoke test (loads/tests `homa.ko`) |
 | `analysis/` | tiered static analysis (quick/standard/deep) |
 | `fuzz/` | libFuzzer harnesses focused on wire (de)serialization |
 

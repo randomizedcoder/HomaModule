@@ -10,12 +10,16 @@
 #
 #   nix build .#homa-module                # build homa.ko (release) against the pinned kernel
 #   nix build .#homa-module-debug          # build homa.ko (debug: -g -O1)
-#   nix build .#homa-module-6_12           # build against the 6.12 LTS kernel (drift fallback)
+#   nix build .#homa-module-6_12           # per kernel: 6_1 6_6 6_12 6_18 7_3 (nixpkgs),
+#                                          #   7_0 7_1 7_2 (kernel.org source, compile only)
+#   nix build .#homa-build-matrix          # every kernel above -> summary.md (never fails)
+#   HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-module-local
 #   nix build .#homa-utils                 # user-space tools from util/
 #   nix build .#homa-utils-debug           # user-space tools with AddressSanitizer
 #   nix build .#homa-tests                 # build + run the unit tests (ASan)
 #
-#   nix run   .#homa-microvm-test          # boot a microVM, insmod homa.ko, smoke-test it
+#   nix run   .#homa-microvm-test          # boot a microVM, insmod homa.ko, loopback echo RPCs
+#   nix run   .#homa-microvm-test-7_1      # ... per kernel: 6_1 6_6 6_12 6_18 7_3
 #   nix run   .#homa-microvm-test-debug    # ... under a KASAN/KMEMLEAK kernel
 #
 #   nix build .#homa-image                 # OCI userspace image  (docker load < result)
@@ -68,14 +72,20 @@
         envVars = import ./nix/env-vars.nix { inherit pkgs lib kernelConfig pythonEnv; };
         shellFunctions = import ./nix/shell-functions { inherit pkgs lib; };
 
+        # Homa source with the forward-port patches in nix/patches/ applied (upstream main
+        # does not yet build on 7.1+). Every derivation builds this, not `self` directly.
+        homaSrc = import ./nix/patches { inherit pkgs; src = self; };
+        # Kernel trees prepared from kernel.org tarballs (7.0-7.2) or a local checkout.
+        kernelSrc = import ./nix/kernel-src.nix { inherit pkgs lib; };
+
         # ── Derivation modules ─────────────────────────────────────────────────────────
         modulePkgs = import ./nix/module.nix {
-          inherit pkgs lib kernelConfig;
-          src = self;
+          inherit pkgs lib kernelConfig kernelSrc;
+          src = homaSrc;
         };
         userspacePkgs = import ./nix/userspace.nix {
           inherit pkgs lib kernelConfig;
-          src = self;
+          src = homaSrc;
         };
         ociPkgs = import ./nix/oci.nix {
           inherit pkgs lib pythonEnv;
@@ -84,17 +94,17 @@
         };
         analysisPkgs = import ./nix/analysis {
           inherit pkgs lib kernelConfig;
-          src = self;
+          src = homaSrc;
         };
         fuzzPkgs = import ./nix/fuzz {
           inherit pkgs lib kernelConfig;
-          src = self;
+          src = homaSrc;
         };
         microvmPkgs = import ./nix/microvms {
           inherit pkgs lib microvm nixpkgs kernelConfig;
           buildSystem = system;
-          homaModule = modulePkgs.homa-module;
-          homaModuleDebug = modulePkgs.homa-module-debug;
+          buildModule = modulePkgs.buildModule;
+          homaUtils = userspacePkgs.homa-utils;
         };
       in
       {

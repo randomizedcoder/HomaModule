@@ -47,20 +47,23 @@ nix/
   docs/
     DESIGN.md                 # this file
     STATUS.md                 # living progress tracker
-  kernel.nix                  # kernelPackages selection (linux_latest) + KDIR + LTS matrix
+  kernel.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
+  kernel-src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
+  patches/                    # upstream-pending fixes applied to the Homa source (homaSrc)
   packages.nix                # nativeBuildInputs / buildInputs / devTools / pythonEnv / allPackages
   env-vars.nix                # shell env fragment (CC/CXX, KDIR, ARCH, PYTHON)
-  module.nix                  # homa.ko derivation, enableDebug switch  -> homa-module[-debug]
+  module.nix                  # homa.ko derivation, enableDebug switch  -> homa-module[-debug|-<series>],
+                              #   homa-build-matrix
   userspace.nix               # util/ + test/ derivations              -> homa-utils[-debug], homa-tests
   devshell.nix                # mkShell composing the above
   shell-functions/*.nix       # bash helper fragments (homa-build/test/clean/checkpatch/lint)
   oci.nix                     # userspace OCI image                    -> homa-image[-debug]
   microvms/
-    constants.nix             # ports, hostnames, kernelPackage, arch table, timeouts
-    mkVm.nix                  # parameterised guest (co-pinned kernel, 9p store, HOMA_KO)
-    lib.nix                   # phased smoke-test orchestrator (writeShellApplication)
-    default.nix               # assembly -> microvm packages + test runners
-    scripts/vm-expect.exp     # "run one command in the guest, capture stdout" primitive
+    constants.nix             # hostname, resources, timeouts
+    mkVm.nix                  # parameterised guest (kernelPackages, 9p store, HOMA_KO, autoTest)
+    smoke.nix                 # in-guest smoke test (systemd oneshot, sentinels on the console)
+    lib.nix                   # host runner: boot, capture console, grep sentinels -> verdict
+    default.nix               # assembly -> per-kernel microvm packages + test runners
   analysis/
     default.nix               # composition root: analysis-quick|standard|deep + summary.txt
     compile-db.nix            # compile_commands.json via bear (for clang-tidy/cppcheck)
@@ -101,43 +104,57 @@ A single derivation module is instantiated twice via a boolean, mirroring xdp2's
 ## 5. Kernel pinning strategy
 
 `kernel.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
-default `kernelPackages = pkgs.linuxPackages_6_12` — **the newest kernel in the current
-nixpkgs that actually builds Homa** — and it is **overridable**. `kernel.nix` also exposes a
-compile-test **matrix** (`linuxPackages_6_1/6_6/6_12`), a `latest` handle
-(`linux_latest`, for the drift-demonstration target), and a `KDIR` override so the devshell
-`make` can target any kernel, including the host's.
+default `kernelPackages = pkgs.linuxPackages_latest` (7.3), overridable, because Homa is
+being ported forward to 7.x. Upstream `main` needs the 7.1 port to build there; until that
+lands, `nix/patches/` carries it (fork draft #12) and every derivation builds the patched
+`homaSrc` rather than `self`. A patch that upstream has absorbed stops applying, which
+fails the build at patchPhase: that is the cue to delete it.
 
-**Resolved API drift (why not the newest kernel):** Homa `main` targets ~Linux 6.17. At the
-time of building, this nixpkgs offered `linux_latest` = **7.2.6**, against which `homa.ko`
-fails to compile (upstream API drift in `homa_devel.c`/`homa_rpc.h` — not a flake bug), and
-6.16/6.17/6.19 had already been **removed from nixpkgs as EOL**. The newest kernel that
-still builds Homa is **6.12 LTS**, so it is the default; `homa-module-latest` builds against
-`linux_latest` to reproduce the drift as Homa/nixpkgs move. The matrix + `KDIR` override are
-the fallback mechanism, and outcomes are recorded in `STATUS.md`.
+Kernels come from two places:
 
-**Note:** this build host runs kernel 7.1.8 — newer than any nixpkgs package and not equal
-to the pinned build kernel — so a built `.ko` is a **build artifact**. It is exercised
-inside the microVM (which boots the co-pinned kernel), never `insmod`ed on the host.
+- **nixpkgs** (`kernelConfig.matrix`, keyed by series: `6_1 6_6 6_12 6_18 7_3`). Each
+  series probed with `tryEval`, so EOL removals drop out instead of breaking evaluation.
+  These get a real `homa-module-<series>` and a bootable `homa-microvm-test-<series>`.
+- **Source** (`kernel-src.nix`): series nixpkgs has already dropped (7.0, 7.1, 7.2 from
+  pinned kernel.org tarballs) and, with `--impure` and `HOMA_LINUX_SRC=/path/to/linux`, a
+  local checkout (`local`). Each is `olddefconfig` + `modules_prepare` in an O= tree using
+  nixpkgs' newest kernel config: about 2.5 minutes and 450 MB, versus a full kernel build.
+  There is no `vmlinux` or `Module.symvers`, so `homa-module-<series>` against these is a
+  compile check built with `KBUILD_MODPOST_WARN=1`, not a loadable module.
+
+`homa-build-matrix` builds Homa against every kernel above in one derivation and writes
+`summary.md` plus per-kernel logs. It records failures rather than failing, so one broken
+kernel never hides the others.
+
+The unit harness and kernel-mock fuzzers stay on 6.18 (`unitKernelPackages`,
+`nix/unit-kdir`): `test/mock.c` has to support the kernel's headers, and that lags.
 
 ## 6. microVM approach
 
 For a kernel module, a container is the wrong unit — you need a real kernel. The microVM
-(astro/microvm.nix, adapted from `uds-rdma-proxy`) provides one:
+(astro/microvm.nix, adapted from `uds-rdma-proxy` and xtcp2) provides one per kernel:
 
-- `mkVm.nix` builds a guest `nixosSystem` and **co-pins the same `kernelPackages`** for
-  both the guest boot and the `homa.ko` build (avoids vermagic drift).
+- `mkVm.nix` builds a guest `nixosSystem` for a given `kernelPackages` and loads a
+  `homa.ko` built against that same set (avoids vermagic drift). It uses qemu's `pc`
+  machine: on the default `microvm` machine the guest's 8250 UART never registers as
+  ttyS0 and the console goes silent after early boot.
 - The host `/nix/store` is mounted into the guest over **9p**, so the exact `.ko` store
   path is visible; it is exported to the guest as `environment.variables.HOMA_KO`.
-- `lib.nix` is a `writeShellApplication` orchestrator that runs a **phased smoke test**
-  over a TCP console (via `scripts/vm-expect.exp`): boot → wait for prompt →
-  `insmod $HOMA_KO` → `lsmod | grep ^homa` → dmesg banner → exercise a Homa socket
-  (loopback sendmsg/recvmsg) → `rmmod` → scan dmesg for splats → verdict.
+- **The test runs inside the guest** (xtcp2 pattern). With `autoTest = true`, `smoke.nix`
+  runs as a systemd oneshot with `StandardOutput=journal+console`: `insmod` →
+  `/proc/modules` → loopback echo RPCs (`demo_server1` ← `demo_client1`, 6 messages from
+  100 B to 1 MB, through sendmsg and recvmsg) → `rmmod` → dmesg gate. It prints
+  `HOMA_SMOKE_<phase>_OK` lines, then `HOMA_SMOKE_PASS` or `HOMA_SMOKE_FAIL:<phase>`, and
+  powers the VM off.
+- `lib.nix` on the host only boots the runner under `timeout`, captures the console, and
+  greps the sentinels. There is no expect script, no TCP serial port and no shell prompt to
+  match, so tests for different kernels can run in parallel.
 - **Debug variant** (`withSanitizers`) boots a KASAN/KMEMLEAK kernel, allots more RAM,
-  inflates timeouts, and adds a dmesg splat gate that fails the run on any
-  `KASAN`/`unreferenced object` hit.
+  inflates the timeout, and adds a `SANITIZER` phase that fails on any KASAN, UBSAN or
+  kmemleak report.
 
-Exposed: `homa-microvm[-debug]` (the runner package) and `homa-microvm-test[-debug]`
-(`nix run` orchestrators).
+Exposed: `homa-microvm[-<series>|-debug]` (interactive runner, root autologin) and
+`homa-microvm-test[-<series>|-debug]` (`nix run` verdicts).
 
 ## 7. Fuzzing — the (de)serialization focus
 

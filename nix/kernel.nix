@@ -3,25 +3,26 @@
 # Single source of truth for kernel selection.
 #
 # Returns the default kernelPackages (nixpkgs `linux_latest`, overridable), the derived
-# KDIR / modDirVersion used by the out-of-tree module build, and a small LTS "matrix" used
-# for compile-testing homa.ko against older kernels when the newest kernel drifts from what
-# Homa `main` targets (~6.17). See docs/DESIGN.md §5.
+# KDIR / modDirVersion used by the out-of-tree module build, and a "matrix" of every kernel
+# series nixpkgs ships (6.1 ... 7.3), used for per-kernel module builds and microVMs.
 #
 # Usage in flake.nix:
 #   kernelConfig = import ./nix/kernel.nix { inherit pkgs lib; };
-#   kernelConfig.kernelPackages   # default (6.18 LTS)
+#   kernelConfig.kernelPackages   # default (nixpkgs linux_latest, 7.3)
 #   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
-#   kernelConfig.matrix           # { "6_12" = <kernelPackages>; ... } (only those present)
+#   kernelConfig.matrix           # { "6_1" = <kp>; ...; "7_3" = <kp>; } (only those present)
+#   kernelConfig.unitKdir         # KDIR for the unit harness / mock fuzzers (6.18)
 
 { pkgs
 , lib
   # Override the default kernel by passing another kernelPackages set.
   #
-  # Default = 6.18 LTS. Homa `main` targets ~6.17 (its unit harness vendors 6.17.8 rbtree/
-  # rhashtable/xxhash for kernels < 7.0) and compiles under 7.0.14; 6.17 and 7.0 are both
-  # EOL-removed from nixpkgs, so 6.18 LTS is the closest supported kernel. `latest` below
-  # is still exposed so newer-kernel drift can be re-checked over time.
-, kernelPackages ? pkgs.linuxPackages_6_18
+  # Default = nixpkgs' newest kernel (7.3 at the time of writing): Homa is being ported
+  # forward to 7.x. Upstream `main` needs the 7.1 port (nix/patches/) to build here.
+, kernelPackages ? pkgs.linuxPackages_latest
+  # The unit harness and kernel-mock fuzzers need a kernel whose headers test/mock.c
+  # supports; kept separate so it can lag the default.
+, unitKernelPackages ? pkgs.linuxPackages_6_18
 }:
 
 let
@@ -31,9 +32,13 @@ let
   # KDIR for a given kernelPackages: the build tree shipped in the kernel's `dev` output.
   kdirOf = kp: "${kp.kernel.dev}/lib/modules/${kp.kernel.modDirVersion}/build";
 
-  # Compile-test matrix: candidate kernelPackages by version. Some attrs exist but throw on
-  # access (EOL kernels), so each is probed with tryEval and only usable ones are kept.
-  candidateNames = [ "6_1" "6_6" "6_12" "6_18" ];
+  # "7.3.1" -> "7_3"
+  seriesOf = kp: lib.replaceStrings [ "." ] [ "_" ] (lib.versions.majorMinor kp.kernel.version);
+
+  # Matrix: every kernel series nixpkgs still ships, keyed by series. Some attrs exist but
+  # throw on access (EOL kernels), so each is probed with tryEval and only usable ones kept.
+  # Series nixpkgs has dropped (7.0-7.2) come from kernel.org tarballs: see kernel-src.nix.
+  candidates = [ "6_1" "6_6" "6_12" "6_18" "latest" ];
   kpFor = name: pkgs."linuxPackages_${name}" or null;
   usable = name:
     let
@@ -42,11 +47,12 @@ let
     in
     probe.success && probe.value;
   matrix = lib.listToAttrs
-    (map (n: lib.nameValuePair n (kpFor n)) (lib.filter usable candidateNames));
+    (map (n: lib.nameValuePair (seriesOf (kpFor n)) (kpFor n)) (lib.filter usable candidates));
 in
 {
-  inherit kernelPackages kernel modDirVersion matrix kdirOf;
+  inherit kernelPackages kernel modDirVersion matrix kdirOf seriesOf unitKernelPackages;
   kdir = kdirOf kernelPackages;
-  # nixpkgs newest kernel (exposed for the drift-demonstration target; may fail to build).
+  unitKdir = kdirOf unitKernelPackages;
+  unitModDirVersion = unitKernelPackages.kernel.modDirVersion;
   latest = pkgs.linuxPackages_latest;
 }
