@@ -20,6 +20,7 @@
 }:
 
 let
+  unitKdir = import ./unit-kdir { inherit pkgs lib kernelConfig; };
   version = "0-unstable-${lib.substring 0 8 (src.rev or "dirty")}";
 
   buildUtils = { debug ? false }:
@@ -69,30 +70,22 @@ let
     pname = "homa-tests";
     inherit version src;
 
-    nativeBuildInputs = [ pkgs.gnumake pkgs.perl ];
+    # test/linux_objs (picks the vendored rbtree/rhashtable/xxhash for the kernel version)
+    # is a #!/bin/bash script, which does not exist inside the build sandbox.
+    postPatch = "patchShebangs test/linux_objs";
+
+    nativeBuildInputs = [ pkgs.gnumake pkgs.perl pkgs.bash ];
     hardeningDisable = [ "all" ];
 
     dontConfigure = true;
 
     buildPhase = ''
       runHook preBuild
-      # test/Makefile hardcodes $(KDIR)/include/... and $(KDIR)/arch/x86/include/..., but
-      # nixpkgs splits the kernel into source/ (checked-in headers) and build/ (generated).
-      # Build a merged KDIR symlink tree so those hardcoded paths resolve. (We can't edit
-      # test/Makefile — the flake is purely additive.)
-      buildK="${kernelConfig.kdir}"
-      srcK="$(dirname "$buildK")/source"
-      K="$TMPDIR/merged-kdir"
-      mkdir -p "$K/include" "$K/arch/x86/include"
-      cp -rs "$srcK/include/." "$K/include/" 2>/dev/null || true
-      cp -rs "$srcK/arch/x86/include/." "$K/arch/x86/include/" 2>/dev/null || true
-      ln -sfn "$buildK/include/generated" "$K/include/generated"
-      ln -sfn "$buildK/arch/x86/include/generated" "$K/arch/x86/include/generated"
-
+      # unitKdir merges nixpkgs' split source/ + build/ trees and adapts the kernel
+      # config to the mock layer (see nix/unit-kdir/default.nix).
       make -C test \
-        KDIR="$K" \
-        LINUX_VERSION=${kernelConfig.modDirVersion} \
-        ARCH=x86 \
+        KDIR=${unitKdir} \
+        CC="gcc ${unitKdir.extraCFlags}" \
         -j"$NIX_BUILD_CORES" unit
       runHook postBuild
     '';
@@ -101,7 +94,7 @@ let
     doCheck = true;
     checkPhase = ''
       runHook preCheck
-      ./test/unit
+      (cd test && ./unit)
       runHook postCheck
     '';
 
@@ -120,6 +113,6 @@ let
   };
 in
 {
-  inherit homa-utils homa-utils-debug homa-tests;
+  inherit homa-utils homa-utils-debug homa-tests unitKdir;
   packages = { inherit homa-utils homa-utils-debug homa-tests; };
 }
