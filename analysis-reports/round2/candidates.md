@@ -9,24 +9,24 @@ Round 2 produced **two** candidates that meet the bar. Everything else from stat
 analysis and fuzzing is a false positive, a duplicate of open PR #111, or style churn
 (see the two reports).
 
-## 1. Build on 6.18 LTS (≥ 6.18.40 / ≥ 6.18.57)
+## 1. Build on Linux 7.1 and later — fork draft #12
 
-- **What:** Homa's gates for the recvmsg `addr_len` removal (7.1) and
-  `sockaddr_unsized` (6.19) miss the 6.18 stable backports (6.18.40 and 6.18.57).
-  `main` fails to build on current 6.18 LTS.
+- **What:** Linux 7.1 removed `addr_len` from `proto.recvmsg` (8341c989ac77) and turned
+  `net_hotdata.rps_sock_flow_table` into an `rps_tag_ptr` (dd378109d20f). `main` fails on
+  7.1, 7.2.9, 7.3-rc6 and 7.3.
 - **Fix:**
-  - `homa_impl.h`: `SOCKADDR` is `sockaddr_unsized` from 6.18.57. Define
-    `HOMA_RECVMSG_NO_ADDR_LEN` for ≥ 7.1 and for 6.18.40 ≤ v < 6.19.
-  - `homa_plumbing.c`: under that macro, `proto.recvmsg` points at a small adapter
-    that calls `homa_recvmsg(..., &addr_len)` and sets `msg->msg_namelen`, which is
-    what `sock_common_recvmsg` did before the change.
-  - `homa_recvmsg()` and its ~20 unit-test call sites are untouched.
-- **Verified:** build matrix 6.12 / 6.18.22 / 6.18.55 / 6.18.57 / 6.19.9 all OK.
-- **Test:** none. It's a compile-time change, and the unit harness builds against
-  the 6.17.8 / 7.0.14 objects, where the adapter isn't compiled.
-- **Commit subject:** "Build on 6.18 LTS kernels with backported recvmsg/bind changes"
+  - `homa_impl.h`: define `HOMA_RECVMSG_NO_ADDR_LEN` for 7.1 and later.
+  - `homa_plumbing.c`: point `proto.recvmsg` at a `homa_recvmsg_proto` adapter that
+    behaves like the old `sock_common_recvmsg`.
+  - `homa_offload.c`: on 7.1+, `homa_set_softirq_cpu` uses
+    `rps_tag_to_table`/`rps_tag_to_mask`.
+- **Verified:** builds on 6.12, 6.19.9, 7.2.9, 7.3-rc6 and 7.3, and the unit tests pass.
+- **Test:** none (compile-time only).
+- **Deferred:** the 6.18 stable backports (recvmsg in 6.18.40, bind in 6.18.57). Gating
+  `SOCKADDR` at 6.18.57 breaks `test/mock.c`'s `connect` stubs, because 6.18.57 converted
+  `bind` only. It needs a finer gate and is left for a separate change.
 
-## 2. Reject zero-length incoming messages
+## 2. Reject zero-length incoming messages — fork draft #13
 
 - **What:** `homa_message_in_init()` accepts `length == 0`, then indexes
   `small_msg_bytes[(length - 1) >> 6]`, which is `[-1]` and lands before the
@@ -36,6 +36,8 @@ analysis and fuzzing is a false positive, a duplicate of open PR #111, or style 
   message: `homa_sendmsg()` rejects zero length.
 - **Found by:** `fuzz_data_pkt` / `fuzz_start_msg_pkt` (UBSan index -1).
 - **Fix:** `if (length == 0 || (unsigned int)length > HOMA_MAX_MESSAGE_LENGTH) return -EINVAL;`
+- **Verified:** the test fails before the fix and passes after, the full unit suite passes,
+  and 200 saved fuzzer reproducers replay clean.
 - **Test:** yes. `homa_message_in_init__zero_message_length` in
   `test/unit_homa_incoming.c`, right after `__negative_message_length`, with the
   same shape: `msg_length = 0`, then `homa_rpc_alloc_server` returns `-EINVAL`.
