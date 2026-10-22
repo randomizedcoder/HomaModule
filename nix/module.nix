@@ -13,15 +13,25 @@
 # kernelPackages the guest boots (co-pinning avoids vermagic drift).
 #
 # Usage in flake.nix:
-#   modulePkgs = import ./nix/module.nix { inherit pkgs lib kernelConfig; src = self; };
-#   modulePkgs.homa-module          # release .ko
+#   modulePkgs = import ./nix/module.nix { inherit pkgs lib kernelConfig kernelSrc; src = homaSrc; };
+#   modulePkgs.homa-module          # release .ko (default kernel)
 #   modulePkgs.homa-module-debug    # debug .ko
-#   modulePkgs.packages             # { homa-module, homa-module-debug, homa-module-6_12, ... }
+#   modulePkgs.packages             # { homa-module, homa-module-debug, homa-module-<series>...,
+#                                   #   homa-build-matrix }
 #   modulePkgs.buildModule { kernelPackages = <kp>; enableDebug = false; }
+#
+# Per-kernel targets:
+#   homa-module-<series>   nixpkgs kernels (kernel.nix matrix): a real .ko, loadable in the
+#                          matching microVM.
+#   homa-module-<series>   kernel-src trees (7.0-7.2, local): compile check only, built with
+#                          KBUILD_MODPOST_WARN=1 because those trees have no Module.symvers.
+#   homa-build-matrix      one derivation that tries every kernel above and writes a
+#                          pass/fail table plus logs; it never fails itself.
 
 { pkgs
 , lib
 , kernelConfig
+, kernelSrc
 , src
 }:
 
@@ -94,17 +104,67 @@ let
       (buildModule { kernelPackages = kp; enableDebug = false; }))
     kernelConfig.matrix;
 
-  # Drift-demonstration target: build against nixpkgs `linux_latest`. Currently fails
-  # (upstream Homa does not yet support 7.2.x); kept so the drift can be re-checked as Homa
-  # and nixpkgs move. See docs/STATUS.md.
-  homa-module-latest = buildModule {
-    kernelPackages = kernelConfig.latest;
-    enableDebug = false;
+  # Compile-only builds against kernels prepared from source (nix/kernel-src.nix).
+  buildAgainstTree = name: tree: pkgs.stdenv.mkDerivation {
+    pname = "homa-module-${name}";
+    inherit version src;
+    nativeBuildInputs = [ pkgs.gnumake ] ++ tree.nativeBuildInputs;
+    buildInputs = tree.buildInputs;
+    hardeningDisable = [ "all" ];
+    dontConfigure = true;
+    makeFlags = [ "KDIR=${tree}/build" "KBUILD_MODPOST_WARN=1" ];
+    env.MY_CFLAGS = "-O2";
+    installPhase = ''
+      mkdir -p "$out"
+      cp homa.ko "$out/"
+    '';
+    dontFixup = true;
+  };
+  srcPkgs = lib.mapAttrs'
+    (name: tree: lib.nameValuePair "homa-module-${name}" (buildAgainstTree name tree))
+    kernelSrc.trees;
+
+  # Every kernel, one report. Each build runs in its own copy of the source; a failure is
+  # recorded, not propagated, so one broken kernel does not hide the others.
+  matrixKdirs =
+    lib.mapAttrsToList (n: kp: { name = n; version = kp.kernel.version; kdir = kernelConfig.kdirOf kp; extra = ""; })
+      kernelConfig.matrix
+    ++ lib.mapAttrsToList (n: t: { name = n; version = t.version; kdir = "${t}/build"; extra = "KBUILD_MODPOST_WARN=1"; })
+      kernelSrc.trees;
+
+  homa-build-matrix = pkgs.stdenv.mkDerivation {
+    pname = "homa-build-matrix";
+    inherit version src;
+    nativeBuildInputs = [ pkgs.gnumake ]
+      ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies
+      ++ (with pkgs; [ elfutils openssl ]);
+    hardeningDisable = [ "all" ];
+    dontConfigure = true;
+    buildPhase = ''
+      mkdir -p "$out/logs"
+      printf '| Kernel | Version | Result |\n|---|---|---|\n' > "$out/summary.md"
+      fail=0
+      ${lib.concatMapStrings (k: ''
+        rm -rf "../w-${k.name}"; cp -r . "../w-${k.name}"; chmod -R u+w "../w-${k.name}"
+        if make -C "../w-${k.name}" KDIR=${k.kdir} ${k.extra} MY_CFLAGS=-O2 \
+            -j"$NIX_BUILD_CORES" > "$out/logs/${k.name}.log" 2>&1; then
+          r=PASS
+        else
+          r=FAIL; fail=$((fail + 1))
+        fi
+        echo "| ${k.name} | ${k.version} | $r |" >> "$out/summary.md"
+        rm -rf "../w-${k.name}"
+      '') matrixKdirs}
+      echo "$fail" > "$out/failures"
+      cat "$out/summary.md"
+    '';
+    dontInstall = true;
+    dontFixup = true;
   };
 in
 {
-  inherit buildModule homa-module homa-module-debug;
+  inherit buildModule homa-module homa-module-debug homa-build-matrix;
   packages = {
-    inherit homa-module homa-module-debug homa-module-latest;
-  } // matrixPkgs;
+    inherit homa-module homa-module-debug homa-build-matrix;
+  } // srcPkgs // matrixPkgs;
 }
