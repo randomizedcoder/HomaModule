@@ -1,18 +1,21 @@
 # nix/microvms/default.nix
 #
-# microVM assembly (uds-rdma-proxy pattern). Instantiates the guest (mkVm) and the
-# orchestrator (lib) for the normal and debug (KASAN) flavours, and exposes:
-#   homa-microvm            the QEMU runner package (nix run boots it directly)
-#   homa-microvm-debug      ... with a KASAN/KMEMLEAK kernel
-#   homa-microvm-test       boot + insmod homa.ko + smoke test, verdict PASS/FAIL
-#   homa-microvm-test-debug ... under sanitizers
+# microVM assembly (uds-rdma-proxy pattern, one VM per kernel like xtcp2). Instantiates the
+# guest (mkVm) and the orchestrator (lib) and exposes:
+#   homa-microvm[-<series>]        the QEMU runner package (nix run boots it directly)
+#   homa-microvm-test[-<series>]   boot, run smoke.nix in the guest (insmod, loopback echo
+#                                  RPCs, rmmod), PASS/FAIL from the console log
+#   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
+#   homa-microvm-test-debug        ... the same test under sanitizers
+# <series> is every kernel.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
+# default kernel. Tests share nothing on the host, so they can run in parallel.
 #
 # Usage in flake.nix:
 #   microvmPkgs = import ./nix/microvms {
 #     inherit pkgs lib microvm nixpkgs kernelConfig;
 #     buildSystem = system;
-#     homaModule = modulePkgs.homa-module;
-#     homaModuleDebug = modulePkgs.homa-module-debug;
+#     buildModule = modulePkgs.buildModule;
+#     homaUtils = userspacePkgs.homa-utils;
 #   };
 
 { pkgs
@@ -21,40 +24,43 @@
 , nixpkgs
 , kernelConfig
 , buildSystem
-, homaModule
-, homaModuleDebug
-, homaUtils ? null
+, buildModule
+, homaUtils
 }:
 
 let
   constants = import ./constants.nix { inherit lib; };
 
-  mkGuest = withSanitizers: import ./mkVm.nix {
-    inherit pkgs lib microvm nixpkgs kernelConfig buildSystem constants
-      homaModule homaModuleDebug homaUtils withSanitizers;
+  mkGuest = { kernelPackages, withSanitizers ? false, autoTest ? false }: import ./mkVm.nix {
+    inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
+      kernelPackages withSanitizers autoTest;
+    homaModule = buildModule { inherit kernelPackages; };
+    homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
   };
 
-  guest = mkGuest false;
-  guestDebug = mkGuest true;
+  mkTest = { kernelPackages, label, withSanitizers ? false }: import ./lib.nix {
+    inherit pkgs lib constants label withSanitizers;
+    runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
+  };
 
-  test = import ./lib.nix {
-    inherit pkgs lib constants;
-    runner = guest;
-    label = "";
-    withSanitizers = false;
-  };
-  testDebug = import ./lib.nix {
-    inherit pkgs lib constants;
-    runner = guestDebug;
-    label = "-debug";
-    withSanitizers = true;
-  };
+  defaultKp = kernelConfig.kernelPackages;
+
+  perKernel = lib.concatMapAttrs
+    (s: kp: {
+      "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
+      "homa-microvm-test-${s}" = mkTest { kernelPackages = kp; label = "-${s}"; };
+    })
+    kernelConfig.matrix;
 in
 {
   packages = {
-    homa-microvm = guest;
-    homa-microvm-debug = guestDebug;
-    homa-microvm-test = test;
-    homa-microvm-test-debug = testDebug;
-  };
+    homa-microvm = mkGuest { kernelPackages = defaultKp; };
+    homa-microvm-debug = mkGuest { kernelPackages = defaultKp; withSanitizers = true; };
+    homa-microvm-test = mkTest { kernelPackages = defaultKp; label = ""; };
+    homa-microvm-test-debug = mkTest {
+      kernelPackages = defaultKp;
+      label = "-debug";
+      withSanitizers = true;
+    };
+  } // perKernel;
 }
