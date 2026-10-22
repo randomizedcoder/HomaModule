@@ -15,7 +15,9 @@
 - Upstream `main` doesn't build on 7.1+ (recvmsg `addr_len` removal, `rps_tag_ptr`). The flake
   applies fork draft #12 from `nix/patches/` to every derivation until upstream has it.
 - With that patch, `homa.ko` builds on 6.12 and 7.0–7.3 and on a local 7.3-rc7 checkout.
-  **It loads and passes loopback echo RPCs (100 B–1 MB) in microVMs on 7.3.0 and 6.12.113.**
+  **It loads and passes echo RPCs (100 B–1 MB) in microVMs on 7.3.0 and 6.12.113**, both over
+  loopback (recvmsg path) and across netns over veth with GRO and the RPS flow table on
+  (7.3: 1728 `homa_gro_receive`, 475 `homa_set_softirq_cpu` calls, so the `rps_tag_ptr` code runs).
 - 6.18.57 still fails (recvmsg/bind backports to 6.18 stable; deferred, see
   `analysis-reports/round2/candidates.md`). 6.1 and 6.6 predate `net/rps.h` and are below
   Homa's supported range; they stay in the matrix as a record.
@@ -46,7 +48,7 @@
 | `fuzz`, `fuzz-run`, `fuzz-cov` | ✅ standalone decoder harnesses |
 | `fuzz-selftest` | ✅ PASS (canary catches injected overflow) |
 | `fuzz-mock` | ✅ 10 real-code harnesses through `homa_softirq`; smoke gate vs `nix/fuzz/known-findings.txt` |
-| `homa-microvm-test` (7.3.0) | ✅ PASS: insmod, echo RPCs ×6, rmmod, clean dmesg |
+| `homa-microvm-test` (7.3.0) | ✅ PASS: insmod, echo RPCs ×6 (loopback, then veth+GRO+RPS), rmmod, clean dmesg |
 | `homa-microvm-test-6_12` | ✅ PASS |
 | `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
 
