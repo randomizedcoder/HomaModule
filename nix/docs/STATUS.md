@@ -51,6 +51,8 @@
 | `homa-microvm-test` (7.3.0) | ✅ PASS: insmod, echo RPCs ×6 (loopback, then veth+GRO+RPS), rmmod, clean dmesg |
 | `homa-microvm-test-6_12` | ✅ PASS |
 | `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
+| `homa-pair-test` (7.3 ↔ 7.3) | ✅ PASS: ping, echo ×6 across VMs, cp_node w4 Homa + TCP, rmmod, clean dmesg on both |
+| `homa-pair-test-<server>-<client>` | ✅ PASS for 6_12-6_12, 6_12-7_3, 7_3-6_12, 7_3-7_3; all four run in parallel in 50 s |
 
 ## Phase checklist
 - [x] **Phase 0 — Branch.** `nix-flake`.
@@ -59,6 +61,8 @@
 - [x] **Phase 3 — Module + userspace derivations.** module ✅; userspace: utils ✅, tests ❌ (drift).
 - [x] **Phase 4 — Dev shell** (`devshell.nix` + `shell-functions/`).
 - [x] **Phase 5 — microVM** (`microvms/*`) — per-kernel guests; in-guest smoke test passes on 7.3 and 6.12.
+  Pair tests (two VMs over a QEMU socket link) pass for every 6.12/7.3 pairing; see
+  `microvms/PLAN-pairs.md`.
 - [x] **Phase 6 — OCI image** (`oci.nix`) ✅.
 - [x] **Phase 7 — Static analysis** (`analysis/*`) — quick ✅, cppcheck ✅, clang-tidy ✅ (2130), sparse ✅.
 - [x] **Phase 8 — Fuzzing** (`fuzz/*`) — Focus C + selftest + cov ✅; Focus A/B best-effort (3 TUs to unblock).

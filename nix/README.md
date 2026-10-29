@@ -156,11 +156,11 @@ Every kernel series has its own targets, so you can build or boot exactly the on
 
 | Series | Source | `homa-module-<s>` | `homa-microvm[-test]-<s>` | Status on `main` |
 |---|---|---|---|---|
-| `7_3` (default) | nixpkgs `linuxPackages_latest` | ✅ builds | ✅ boots, smoke test passes | supported |
+| `7_3` (default) | nixpkgs `linuxPackages_latest` | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
 | `7_0`, `7_1`, `7_2` | kernel.org tarballs (`kernel-src.nix`) | ✅ compile check | — (no bootable kernel yet) | supported |
-| `6_12` | nixpkgs | ✅ builds | ✅ boots, smoke test passes | supported |
-| `6_18` | nixpkgs (6.18.57) | ❌ | ❌ | stable backported the 7.x socket API changes; see `docs/STATUS.md` |
-| `6_1`, `6_6` | nixpkgs | ❌ | ❌ | below Homa's supported range |
+| `6_12` | nixpkgs | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
+| `6_18` | nixpkgs (6.18.57) | ❌ | — | stable backported the 7.x socket API changes; see `docs/STATUS.md` |
+| `6_1`, `6_6` | nixpkgs | ❌ | — | below Homa's supported range |
 | `local` | your checkout, `HOMA_LINUX_SRC=...` with `--impure` | ✅ compile check | — | e.g. net-next |
 
 ```sh
@@ -168,6 +168,16 @@ nix build .#homa-module-6_12          # homa.ko for one kernel
 nix build .#homa-build-matrix         # try every kernel; result/summary.md is the table
 nix run   .#homa-microvm-test-6_12    # boot that kernel and run the smoke test
 nix run   .#homa-microvm-6_12         # the same guest, interactive (root, no password)
+nix run   .#homa-pair-test-6_12-7_3   # Homa between a 6.12 server VM and a 7.3 client VM
+```
+
+VM and pair targets exist only for kernels where the module builds (`vmSeries` in
+`kernel.nix`). Pair targets cover every server/client combination: `6_12-6_12`, `6_12-7_3`,
+`7_3-6_12` and `7_3-7_3`. The mixed pairs check that Homa built for one kernel talks to Homa
+built for another. Each pair has its own link port, so they can all run at once:
+
+```sh
+for p in 6_12-6_12 6_12-7_3 7_3-6_12 7_3-7_3; do nix run .#homa-pair-test-$p & done; wait
 ```
 
 Each VM boots the same `kernelPackages` the module was built against, so the module's version
@@ -194,6 +204,7 @@ nix run   .#homa-microvm-test-<s>    # ... on one kernel
 nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel (slow)
 nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
+nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>
 
 nix build .#homa-image[-debug]       # OCI user-space image (docker load < result)
 
