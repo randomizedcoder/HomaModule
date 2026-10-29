@@ -11,6 +11,7 @@
 #   kernelConfig.kernelPackages   # default (nixpkgs linux_latest, 7.3)
 #   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
 #   kernelConfig.matrix           # { "6_1" = <kp>; ...; "7_3" = <kp>; } (only those present)
+#   kernelConfig.vmMatrix         # the subset the module builds on, so microVMs are useful
 #   kernelConfig.unitKdir         # KDIR for the unit harness / mock fuzzers (6.18)
 
 { pkgs
@@ -48,9 +49,15 @@ let
     probe.success && probe.value;
   matrix = lib.listToAttrs
     (map (n: lib.nameValuePair (seriesOf (kpFor n)) (kpFor n)) (lib.filter usable candidates));
+
+  # Series that get microVM and pair-test targets: those where homa.ko builds on `main`.
+  # 6.1/6.6 are below the supported range and 6.18-stable (6.18.40+, 6.18.57+) backported the
+  # 7.x socket API changes, so they stay in `matrix` (and homa-build-matrix) for visibility.
+  vmSeries = [ "6_12" "7_3" ];
+  vmMatrix = lib.filterAttrs (s: _: lib.elem s vmSeries) matrix;
 in
 {
-  inherit kernelPackages kernel modDirVersion matrix kdirOf seriesOf unitKernelPackages;
+  inherit kernelPackages kernel modDirVersion matrix vmMatrix kdirOf seriesOf unitKernelPackages;
   kdir = kdirOf kernelPackages;
   unitKdir = kdirOf unitKernelPackages;
   unitModDirVersion = unitKernelPackages.kernel.modDirVersion;

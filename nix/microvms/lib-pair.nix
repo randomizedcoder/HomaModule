@@ -16,7 +16,8 @@
 , constants
 , serverRunner      # declaredRunner for the pairNode = "server" guest
 , clientRunner      # declaredRunner for the pairNode = "client" guest
-, label ? ""        # "", "-7_3", "-6_12-7_3", ...
+, label ? ""        # "", "-6_12-7_3" (server kernel first), ...
+, port              # host port of the QEMU socket link; unique per pair so pairs can run together
 }:
 
 let
@@ -30,7 +31,7 @@ pkgs.writeShellApplication {
     mkdir -p "$logdir"
     slog="$logdir/node0${label}.log"
     clog="$logdir/node1${label}.log"
-    port=${toString pair.socketPort}
+    port=${toString port}
     echo "console logs: $slog $clog"
 
     if ss -Hltn "sport = :$port" | grep -q .; then

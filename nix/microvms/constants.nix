@@ -29,7 +29,7 @@
       client = { hostname = "node1"; ip = "10.88.0.2"; mac = "52:54:00:88:00:02"; role = "connect"; };
     };
     prefixLength = 24;
-    socketPort = 23700; # host 127.0.0.1 port for the QEMU socket link
+    socketPortBase = 23700; # host 127.0.0.1 port for the QEMU socket link; +N per pair target
 
     # Guest TCP ports for coordination (not Homa traffic).
     readyPort = 5998; # server listens once its Homa servers are up

@@ -32,6 +32,7 @@
 , withSanitizers ? false
 , autoTest ? false
 , pairNode ? null     # null | "server" | "client"
+, pairPort            # host port of the socket link (unique per pair)
 }:
 
 let
@@ -108,7 +109,7 @@ let
           # Pair link (eth1): point-to-point QEMU socket, node0 listens and node1 connects.
           qemu.extraArgs = lib.optionals isPair [
             "-netdev"
-            "socket,id=homapair,${node.role}=127.0.0.1:${toString pair.socketPort}"
+            "socket,id=homapair,${node.role}=127.0.0.1:${toString pairPort}"
             "-device"
             "virtio-net-pci,netdev=homapair,mac=${node.mac}"
           ];

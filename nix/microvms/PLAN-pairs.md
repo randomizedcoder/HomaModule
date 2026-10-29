@@ -57,7 +57,7 @@ Two guests built by the existing `mkVm.nix`, each with a second NIC:
 | # | Deliverable | New targets | Done when |
 |---|---|---|---|
 | 1 ✅ | Pair harness, same kernel | `homa-pair-test` (default kernel) | **Done:** echo + cp_node Homa/TCP pass on 7.3 ↔ 7.3, about 35 s cached; a client with a dead link fails at `PING`. The interactive pair (`homa-pair`) moves to phase 3 |
-| 2 | Cross-kernel pairs | `homa-pair-test-<A>-<B>` for supported kernels (6.12 ↔ 7.3 both ways) | Mixed-kernel wire compatibility proven both directions |
+| 2 ✅ | Cross-kernel pairs | `homa-pair-test-<A>-<B>` for supported kernels (6.12 ↔ 7.3 both ways) | **Done:** all four pairings pass; each has its own link port, and all four run in parallel in 50 s. `vmSeries` in `kernel.nix` limits VM targets to 6.12 and 7.3 |
 | 3 | One command for everything | `homa-vm-matrix`: every single-VM test plus every pair, run in parallel, printing a table (kernel(s), verdict, RPC counts, cp_node rates) | `nix run .#homa-vm-matrix` is the demo |
 | 4 | Lossy and slow links | `homa-pair-test-netem`: `tc netem loss 1% delay 1ms` on eth1 | Echo still completes, and the RESEND/retransmit counters in `/proc/net/homa_metrics` move |
 | 5 | Homa qdisc on virtio | the pair with `tc qdisc replace dev eth1 root homa` | Exercises the pacer across VMs. virtio-net reports `SPEED_UNKNOWN`, so this should reproduce round-4 candidate 5 (link speed −1): a red test in a VM, then green with the fix |
@@ -82,6 +82,13 @@ Housekeeping, done with phase 1:
 - `nix/microvms/matrix.nix` (new): parallel runner and summary table.
 - `nix/microvms/default.nix`: wires up the new targets.
 - `nix/README.md`, `DESIGN.md`: a demo section.
+
+## Observations
+
+- Over the VM link, Homa's cp_node P50 RTT is about 5 ms, against about 0.3 ms for TCP on the
+  same workload. Every pairing shows this. Possible causes to look into: virtio-net reports
+  `SPEED_UNKNOWN` (round-4 candidate 5), the pacer or grant settings for an unknown link
+  rate, or the emulated link itself. Phase 5's qdisc work is the natural place to dig.
 
 ## Caveats
 
