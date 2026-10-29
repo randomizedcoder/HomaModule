@@ -81,6 +81,9 @@ let
         boot.kernelParams = [
           "console=ttyS0,115200"
           "systemd.show_status=true"
+          # Zero freed memory, so a use-after-free in Homa reads NULLs and oopses at once
+          # instead of usually reading stale but valid pointers (STATUS.md F8).
+          "init_on_free=1"
         ] ++ lib.optionals isPair [
           # Stable names: the user NIC is eth0 and the pair link eth1.
           "net.ifnames=0"
