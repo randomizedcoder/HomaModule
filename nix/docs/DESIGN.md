@@ -2,7 +2,7 @@
 
 > Status: **living design document**. This is the durable *why* and *how* behind the
 > `nix/` tree. For a quick-start command list see [`../README.md`](../README.md); for
-> live build progress see [`STATUS.md`](STATUS.md).
+> live build progress see [`../STATUS.md`](../STATUS.md).
 
 ## 1. Goal
 
@@ -44,9 +44,9 @@ derivations as arguments, which keeps them independently testable.
 flake.nix                     # inputs (nixpkgs unstable, flake-utils, microvm), wiring, usage header
 nix/
   README.md                   # quick-start + command cheat-sheet
+  STATUS.md                   # status per kernel/target, findings, follow-ups
   docs/
     DESIGN.md                 # this file
-    STATUS.md                 # living progress tracker
   kernel.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
   kernel-src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
   patches/                    # upstream-pending fixes applied to the Homa source (homaSrc)

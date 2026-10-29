@@ -36,7 +36,7 @@ pkgs.mkShell {
       homa-checkpatch     run kernel checkpatch (needs a Linux source tree)
       homa-lint           quick static analysis (ruff + shellcheck + clang-format)
 
-    Docs: nix/docs/DESIGN.md   Status: nix/docs/STATUS.md
+    Docs: nix/docs/DESIGN.md   Status: nix/STATUS.md
     EOF
   '';
 }

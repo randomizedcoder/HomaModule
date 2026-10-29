@@ -1,16 +1,20 @@
-# Homa Nix testing: findings and follow-ups
+# Homa Nix flake: status, findings and follow-ups
 
-What the flake's builds, tests, analysis and microVM runs have shown about Homa, and what is
-worth looking into next.
+The single status doc for the flake: what builds and passes on each kernel, what the builds,
+tests, analysis and microVM runs have shown about Homa, and what to look into next.
 
 Related docs:
-- **Per-target build status:** [`docs/STATUS.md`](docs/STATUS.md)
+- **Commands and quick start:** [`README.md`](README.md)
+- **Architecture and rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
 - **Upstream PRs and their outcomes:** [`../analysis-reports/pr-tracker.md`](../analysis-reports/pr-tracker.md)
 - **VM pair test plan:** [`microvms/PLAN-pairs.md`](microvms/PLAN-pairs.md)
 
 | | |
 |---|---|
 | **Last update** | 2026-10-28 |
+| **Branch** | `nix-flake` on randomizedcoder/HomaModule, rebased on upstream `main` |
+| **nixpkgs** | `nixos-unstable` |
+| **Default kernel** | `linuxPackages_latest` (7.3); unit harness and fuzz-mock use 6.18.57 headers (F5) |
 | **Upstream base** | `main` = `4bd0275` ("Get 'make `__STRIP__`=1' working again") |
 | **Kernels** | nixpkgs 6.1.190, 6.6.159, 6.12.113, 6.18.57, 7.3.0; kernel.org 7.0.14, 7.1.13, 7.2.12 |
 
@@ -42,6 +46,38 @@ Related docs:
 These are functional numbers: an emulated link (QEMU socket, about 1–2 Gb/s) between VMs that
 share host CPUs. They show that traffic flows, not how fast Homa is. Even so, the P50 gap is
 large enough to look into (F2).
+
+### Build matrix (`nix build .#homa-build-matrix`)
+
+| Kernel | Source | Result |
+|---|---|---|
+| 6.1.190 | nixpkgs | ❌ no `net/rps.h` (below Homa's supported range) |
+| 6.6.159 | nixpkgs | ❌ no `net/rps.h` (below Homa's supported range) |
+| 6.12.113 | nixpkgs | ✅ |
+| 6.18.57 | nixpkgs | ❌ 6.18-stable backports (F1) |
+| 7.0.14 | kernel.org | ✅ compile |
+| 7.1.13 | kernel.org | ✅ compile |
+| 7.2.12 | kernel.org | ✅ compile |
+| 7.3 | nixpkgs | ✅ |
+| 7.3-rc7 (`af32da41b032`) | local, `HOMA_LINUX_SRC` | ✅ compile |
+
+### Per target (verified with `nix build` / `nix run`)
+
+| Target | Status |
+|---|---|
+| `nix flake show`, `nix flake check` | ✅ evaluates, checks pass |
+| `homa-module` (7.3), `homa-module-<series>` | ✅ (see the matrix above) |
+| `homa-utils`, `homa-utils-debug` | ✅ |
+| `homa-tests` | ✅ 884/884 (hermetic 6.18 unit KDIR) |
+| `homa-image[-debug]` | ✅ |
+| `analysis-quick` | ✅ |
+| `analysis-sparse` / `-smatch` / `-compile-db` (7.3) | ✅ sparse 1586 raw (980 on 6.18), smatch 38 |
+| `fuzz`, `fuzz-run`, `fuzz-cov` | ✅ standalone decoder harnesses |
+| `fuzz-selftest` | ✅ PASS (the canary catches an injected overflow) |
+| `fuzz-mock` | ✅ 10 real-code harnesses through `homa_softirq`; gated on `nix/fuzz/known-findings.txt` (empty) |
+| `homa-microvm-test` (7.3.0), `homa-microvm-test-6_12` | ✅ PASS |
+| `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
+| `homa-pair-test`, `homa-pair-test-<server>-<client>` | ✅ PASS for all four 6.12/7.3 pairings |
 
 ---
 
@@ -157,3 +193,15 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
 | 10 | Post the F2 result upstream if it turns out to be Homa, not the VM | Real-world latency issue | — | after #1 |
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
+| 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
+
+---
+
+## History
+
+| Date | Milestone |
+|---|---|
+| 2026-09-18 | Flake built in phases: design doc, module and user-space derivations, dev shell, microVM, OCI image, tiered static analysis, fuzzing. Round 1 reports in `analysis-reports/round1/` |
+| 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
+| 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
+| 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc |
