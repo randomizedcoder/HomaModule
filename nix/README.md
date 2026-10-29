@@ -206,6 +206,7 @@ nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
 nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>
 nix run   .#homa-pair-exp            # latency sweep: cp_node per sysctl setting + metric deltas
+nix run   .#homa-vm-matrix           # every VM test and pair in parallel -> summary table
 nix run   .#homa-pair-exp-socket     # ... over QEMU's TCP socket link (STATUS.md F2)
 
 nix build .#homa-image[-debug]       # OCI user-space image (docker load < result)

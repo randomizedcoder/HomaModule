@@ -12,6 +12,7 @@ Related docs:
 | | |
 |---|---|
 | **Last update** | 2026-10-28 |
+| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22 |
 | **Branch** | `nix-flake` on randomizedcoder/HomaModule, rebased on upstream `main` |
 | **nixpkgs** | `nixos-unstable` |
 | **Default kernel** | `linuxPackages_latest` (7.3); unit harness and fuzz-mock use 6.18.57 headers (F5) |
@@ -24,7 +25,7 @@ Related docs:
 
 | Area | Command | Result on `main` |
 |---|---|---|
-| Module build | `nix build .#homa-build-matrix` | ✅ 6.12, 7.0, 7.1, 7.2, 7.3. ❌ 6.18.57 (F1). ❌ 6.1/6.6 (no `net/rps.h`, below Homa's range) |
+| Module build | `nix build .#homa-build-matrix` | ✅ 6.12, 7.0, 7.1, 7.2, 7.3. ❌ 6.18.57 (F1, not a target). ❌ 6.1/6.6 (no `net/rps.h`, below Homa's range) |
 | Stripped build | `make __STRIP__=1` (7.3) | ✅ clean |
 | Unit tests | `nix build .#homa-tests` | ✅ 884/884, in IPv6 and `--ipv4` modes |
 | Fuzzing, real parsers | `nix build .#fuzz-mock` | ✅ all 10 harnesses run clean; the known-findings list is empty |
@@ -32,6 +33,7 @@ Related docs:
 | Single VM | `homa-microvm-test-{6_12,7_3}` | ✅ insmod, loopback echo, netns/veth with GRO+RPS (about 1.7k `homa_gro_receive` and 460 `homa_set_softirq_cpu` calls), rmmod, clean dmesg |
 | Two VMs | `homa-pair-test-<server>-<client>` | ✅ all four 6.12/7.3 pairings: ping, echo 100 B–1 MB, cp_node w4 over Homa and over TCP, clean dmesg on both. 8 VMs in parallel finish in 50 s |
 | Latency sweep | `homa-pair-exp`, `homa-pair-exp-socket` | ✅ F2 explained: QEMU's TCP `socket` link stalls packets; over the UDP `dgram` link (now the default) Homa's P50 matches TCP's |
+| VM matrix | `homa-vm-matrix` | ❌ on `main`: all 6 oops in `homa_route_free` (F8). ✅ 6/6 with the fix (fork #22), 46 s |
 | KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
@@ -59,7 +61,7 @@ that traffic flows, not how fast Homa is.
 | 6.1.190 | nixpkgs | ❌ no `net/rps.h` (below Homa's supported range) |
 | 6.6.159 | nixpkgs | ❌ no `net/rps.h` (below Homa's supported range) |
 | 6.12.113 | nixpkgs | ✅ |
-| 6.18.57 | nixpkgs | ❌ 6.18-stable backports (F1) |
+| 6.18.57 | nixpkgs | ❌ 6.18-stable backports (F1; not a target, LTS will be 7.3+) |
 | 7.0.14 | kernel.org | ✅ compile |
 | 7.1.13 | kernel.org | ✅ compile |
 | 7.2.12 | kernel.org | ✅ compile |
@@ -88,7 +90,7 @@ that traffic flows, not how fast Homa is.
 
 ## Findings
 
-### F1: 6.18-stable backports break the build on 6.18.40 and later
+### F1: 6.18-stable backports break the build on 6.18.40 and later (won't fix)
 
 6.18 stable backported two 7.x socket API changes: the recvmsg `addr_len` removal in 6.18.40,
 and `sockaddr_unsized` for bind in 6.18.57. Homa's gates (`< KERNEL_VERSION(7, 1, 0)` and
@@ -96,9 +98,12 @@ and `sockaddr_unsized` for bind in 6.18.57. Homa's gates (`< KERNEL_VERSION(7, 1
 and a `-Wincompatible-pointer-types` warning in the unit build.
 
 - **Status:** raised with John on
-  [#120](https://github.com/PlatformLab/HomaModule/pull/120#issuecomment-6486061071). He plans
-  to move `main` to the next LTS. If that is 7.3 or later, the problem goes away.
-- **Follow-up:** wait for his answer. If 6.18 is the target, send a small gate fix.
+  [#120](https://github.com/PlatformLab/HomaModule/pull/120#issuecomment-6486061071).
+  [His answer](https://github.com/PlatformLab/HomaModule/pull/120#issuecomment-6500983772)
+  (2026-10-29): the first LTS `main` targets will be 7.3 or later, so Homa doesn't need to
+  build on 6.18. No gate fix.
+- **Follow-up:** none upstream. 6.18 stays in `homa-build-matrix` as a known failure, so a
+  change in the gates shows up there.
 
 ### F2: Homa's 5 ms median over the VM link was QEMU's `socket` backend (resolved)
 
@@ -191,8 +196,9 @@ The unit harness and fuzz-mock build against 6.18.57 headers (`unitKernelPackage
 `test/mock.c` is maintained for John's development kernel, not for 7.3. That is fine for
 logic tests, but kernel-API drift on 7.x is only caught by the module builds and the VMs.
 
-- **Follow-up:** try `test/mock.c` against 7.3 headers. If the gaps are small, move the unit
-  KDIR to follow the default kernel, or to the LTS John picks (F1).
+- **Follow-up:** `main`'s LTS will be 7.3 or later (F1), so 6.18 headers will soon be the
+  odd one out. Try `test/mock.c` against 7.3 headers now, and move the unit KDIR to 7.3 when
+  `main` switches.
 
 ### F6: Small items noted while reading the code
 
@@ -210,6 +216,29 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
   IPv6 between VMs, and more than two nodes.
 - **7.0–7.2:** compile-checked only; there is no bootable kernel for them in the flake yet.
 
+### F8: Use-after-free in `homa_route_free` on netns exit and rmmod (fix: fork #22)
+
+`homa_peer_free_net()` (the pernet `.exit` path) releases each of the namespace's routes
+with `call_rcu(homa_route_free)`. The callback dereferences `route->key.hnet->homa->peertab`.
+But `hnet` is pernet data (`.size = sizeof(struct homa_net)`), which the netns core frees
+straight after `.exit` and before its own `rcu_barrier()`. It came in with upstream
+`8db9f5e` (routes, 2026-10-14).
+
+- **Found by:** the first `homa-vm-matrix` run. One 7.3 smoke VM hit a general protection
+  fault in `homa_route_free` (from `rcu_do_batch`) after `ip netns del`. Unloaded VMs rarely
+  show it (3 of 8 under load, 0 of 16 alone), because the freed `hnet` usually still holds
+  valid pointers.
+- **Made deterministic:** the test guests now boot with `init_on_free=1`. Unpatched, every
+  smoke run oopses on 6.12 and 7.3 (8/8), and so does every pair client on `rmmod`
+  (`unregister_pernet_subsys` frees the init_net `hnet` the same way).
+- **Fix:** `rcu_barrier()` at the end of `homa_peer_free_net()`. Unit test
+  `homa_peer_free_net__wait_for_rcu_callbacks` is red then green, with 885/885 unit tests
+  passing in IPv6 and `--ipv4` modes. The 7.3 build is clean normal and stripped, checkpatch
+  is clean, and the VMs go from 8/8 oops to 8/8 pass and the matrix from 0/6 to 6/6.
+  Draft:
+  [randomizedcoder/HomaModule#22](https://github.com/randomizedcoder/HomaModule/pull/22).
+- **Until it lands,** `homa-vm-matrix` and the VM tests fail on `main`, as they should.
+
 ---
 
 ## Follow-up actions
@@ -217,13 +246,14 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 | # | Action | Why | Effort | Who |
 |---|---|---|---|---|
 | 1 | ~~F2 experiments~~ ✅ done: QEMU `socket` backend stall, pair tests moved to `dgram` | — | — | — |
-| 2 | PLAN-pairs phase 3: `homa-vm-matrix` summary runner | One-command demo; would also have caught F2 at a glance | small | us |
+| 2 | ~~PLAN-pairs phase 3: `homa-vm-matrix`~~ ✅ done; its first run found F8 | — | — | — |
+| 13 | Send F8 upstream once the user has reviewed fork #22 | Use-after-free on every netns exit and rmmod | — | us → upstream |
 | 3 | PLAN-pairs phase 4: netem loss and delay | Test RESEND and timeout paths across a real link (F3) | small | us |
 | 4 | PLAN-pairs phase 5: Homa qdisc on virtio | Should reproduce round-4 candidate 5 in a real kernel; exercises the pacer | medium | us |
 | 5 | Run `homa-microvm-test-debug`, then a KASAN pair test | Memory-safety coverage of the real data path | medium (kernel build) | us |
 | 6 | IPv6 pair test (`--ipv6` for cp_node, v6 addresses on eth1) | #137/#138 were IPv6 bugs; nothing tests v6 between nodes | small | us |
 | 7 | Round-4 candidates 5–8, test-first | More upstream fixes in John's style | medium | us → upstream |
-| 8 | Which LTS will `main` target? | Decides F1 and the unit KDIR (F5) | — | ask John (#120) |
+| 8 | ~~Which LTS will `main` target?~~ ✅ 7.3 or later (John, #120, 2026-10-29) | Closes F1; unit KDIR moves to 7.3 (F5) | — | — |
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
 | 10 | ~~Post F2 upstream~~ not needed: VM link, not Homa | — | — | — |
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |

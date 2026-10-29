@@ -7,6 +7,10 @@
 #                                  RPCs, rmmod), PASS/FAIL from the console log
 #   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
 #   homa-microvm-test-debug        ... the same test under sanitizers
+#   homa-pair-test[-<s>-<c>]       two VMs (lib-pair.nix): Homa between server <s>, client <c>
+#   homa-pair-exp[-socket]         latency sweep over the pair link (STATUS.md F2)
+#   homa-vm-matrix                 every homa-microvm-test-<series> and pair, in parallel,
+#                                  with a summary table (matrix.nix)
 # <series> is every kernel.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
 # default kernel. Tests share nothing on the host, so they can run in parallel.
 #
@@ -108,6 +112,26 @@ let
 
   defaultKp = kernelConfig.kernelPackages;
 
+  # homa-vm-matrix: every per-kernel smoke test and every pair, in parallel (phase 3).
+  matrix = import ./matrix.nix {
+    inherit pkgs lib;
+    tests =
+      lib.mapAttrsToList
+        (s: _: {
+          name = "homa-microvm-test-${s}";
+          kernels = s;
+          exe = perKernel."homa-microvm-test-${s}";
+        })
+        kernelConfig.vmMatrix
+      ++ map
+        (p: {
+          name = "homa-pair-test-${p.server}-${p.client}";
+          kernels = "${p.server} → ${p.client}";
+          exe = perPair."homa-pair-test-${p.server}-${p.client}";
+        })
+        pairList;
+  };
+
   perKernel = lib.concatMapAttrs
     (s: kp: {
       "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
@@ -148,5 +172,6 @@ in
       experiments = latencyExperiments;
       link = "socket";
     };
+    homa-vm-matrix = matrix;
   } // perKernel // perPair;
 }
