@@ -86,9 +86,10 @@ Housekeeping, done with phase 1:
 ## Observations
 
 - Over the VM link, Homa's cp_node P50 RTT is about 5 ms, against about 0.3 ms for TCP on the
-  same workload. Every pairing shows this. Possible causes to look into: virtio-net reports
-  `SPEED_UNKNOWN` (round-4 candidate 5), the pacer or grant settings for an unknown link
-  rate, or the emulated link itself. Phase 5's qdisc work is the natural place to dig.
+  same workload. Every pairing shows this. The Homa qdisc isn't attached in these tests, so
+  round-4 candidate 5 (`SPEED_UNKNOWN`) isn't the cause. The leading suspect is Homa's default
+  `link_mbps = 25000` against a link that carries about 1–2 Gb/s. See [`../STATUS.md`](../STATUS.md)
+  (F2) for the follow-up experiments.
 
 ## Caveats
 
