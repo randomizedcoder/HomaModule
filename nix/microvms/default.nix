@@ -31,9 +31,9 @@
 let
   constants = import ./constants.nix { inherit lib; };
 
-  mkGuest = { kernelPackages, withSanitizers ? false, autoTest ? false }: import ./mkVm.nix {
+  mkGuest = { kernelPackages, withSanitizers ? false, autoTest ? false, pairNode ? null }: import ./mkVm.nix {
     inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
-      kernelPackages withSanitizers autoTest;
+      kernelPackages withSanitizers autoTest pairNode;
     homaModule = buildModule { inherit kernelPackages; };
     homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
   };
@@ -41,6 +41,13 @@ let
   mkTest = { kernelPackages, label, withSanitizers ? false }: import ./lib.nix {
     inherit pkgs lib constants label withSanitizers;
     runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
+  };
+
+  # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
+  mkPairTest = { serverKp, clientKp, label }: import ./lib-pair.nix {
+    inherit pkgs lib constants label;
+    serverRunner = mkGuest { kernelPackages = serverKp; autoTest = true; pairNode = "server"; };
+    clientRunner = mkGuest { kernelPackages = clientKp; autoTest = true; pairNode = "client"; };
   };
 
   defaultKp = kernelConfig.kernelPackages;
@@ -62,5 +69,6 @@ in
       label = "-debug";
       withSanitizers = true;
     };
+    homa-pair-test = mkPairTest { serverKp = defaultKp; clientKp = defaultKp; label = ""; };
   } // perKernel;
 }

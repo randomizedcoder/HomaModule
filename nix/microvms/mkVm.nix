@@ -14,6 +14,10 @@
 # kernel).
 #
 # kernelPackages selects the guest kernel (one VM per kernel.nix matrix entry, xtcp2-style).
+#
+# pairNode = "server" | "client" makes the guest one half of the two-VM pair test: a second
+# NIC (eth1) on a QEMU socket link to the other guest, a static IP, cp_node's node<N>
+# hostnames, and pair.nix's script in place of the smoke test.
 
 { pkgs
 , lib
@@ -27,6 +31,7 @@
 , homaUtils           # user-space tools (demo_server1/demo_client1 for the smoke test)
 , withSanitizers ? false
 , autoTest ? false
+, pairNode ? null     # null | "server" | "client"
 }:
 
 let
@@ -54,6 +59,13 @@ let
 
   smoke = import ./smoke.nix { inherit pkgs homaKoPath homaUtils withSanitizers; };
 
+  pair = constants.pair;
+  isPair = pairNode != null;
+  node = pair.nodes.${pairNode};
+  pairScripts = import ./pair.nix { inherit pkgs homaKoPath homaUtils pair; };
+  testScript = if isPair then pairScripts.${pairNode} else smoke;
+  testExe = lib.getExe testScript;
+
   guest = nixpkgs.lib.nixosSystem {
     system = buildSystem;
     modules = [
@@ -63,6 +75,9 @@ let
         boot.kernelParams = [
           "console=ttyS0,115200"
           "systemd.show_status=true"
+        ] ++ lib.optionals isPair [
+          # Stable names: the user NIC is eth0 and the pair link eth1.
+          "net.ifnames=0"
         ] ++ lib.optionals withSanitizers [ "kmemleak=on" "kasan_multi_shot" ];
         boot.initrd.availableKernelModules = [ "9p" "9pnet" "9pnet_virtio" "virtio_pci" ];
 
@@ -89,25 +104,45 @@ let
             id = "eth0";
             mac = "52:54:00:00:00:01";
           }];
+
+          # Pair link (eth1): point-to-point QEMU socket, node0 listens and node1 connects.
+          qemu.extraArgs = lib.optionals isPair [
+            "-netdev"
+            "socket,id=homapair,${node.role}=127.0.0.1:${toString pair.socketPort}"
+            "-device"
+            "virtio-net-pci,netdev=homapair,mac=${node.mac}"
+          ];
         };
+
+        networking.interfaces = lib.mkIf isPair {
+          eth1 = {
+            useDHCP = false;
+            ipv4.addresses = [{ address = node.ip; inherit (pair) prefixLength; }];
+          };
+        };
+        networking.hosts = lib.mkIf isPair (lib.mapAttrs'
+          (_: n: lib.nameValuePair n.ip [ n.hostname ])
+          pair.nodes);
+        # The NixOS firewall would drop Homa (IP protocol 146) and the coordination ports.
+        networking.firewall.enable = !isPair;
 
         # Interactive use: passwordless root autologin on the console.
         services.getty.autologinUser = "root";
         users.users.root.password = "";
 
-        networking.hostName = constants.hostname;
+        networking.hostName = if isPair then node.hostname else constants.hostname;
 
-        environment.systemPackages = [ pkgs.kmod pkgs.iproute2 pkgs.coreutils homaUtils smoke ];
+        environment.systemPackages = [ pkgs.kmod pkgs.iproute2 pkgs.coreutils homaUtils testScript ];
         environment.variables.HOMA_KO = homaKoPath;
 
-        systemd.services.homa-smoke = lib.mkIf autoTest {
+        systemd.services.homa-test = lib.mkIf autoTest {
           wantedBy = [ "multi-user.target" ];
           after = [ "multi-user.target" ];
           serviceConfig = {
             Type = "oneshot";
             StandardOutput = "journal+console";
             StandardError = "journal+console";
-            ExecStart = "${smoke}/bin/homa-smoke";
+            ExecStart = testExe;
             # Pass or fail, end the run so the host sees qemu exit.
             ExecStopPost = "${pkgs.systemd}/bin/systemctl poweroff --no-block";
           };

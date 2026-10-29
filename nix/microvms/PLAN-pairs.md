@@ -56,7 +56,7 @@ Two guests built by the existing `mkVm.nix`, each with a second NIC:
 
 | # | Deliverable | New targets | Done when |
 |---|---|---|---|
-| 1 | Pair harness, same kernel | `homa-pair-test` (default kernel), `homa-pair` (interactive: both VMs, root shells) | Echo + cp_node pass on 7.3 ↔ 7.3 |
+| 1 ✅ | Pair harness, same kernel | `homa-pair-test` (default kernel) | **Done:** echo + cp_node Homa/TCP pass on 7.3 ↔ 7.3, about 35 s cached; a client with a dead link fails at `PING`. The interactive pair (`homa-pair`) moves to phase 3 |
 | 2 | Cross-kernel pairs | `homa-pair-test-<A>-<B>` for supported kernels (6.12 ↔ 7.3 both ways) | Mixed-kernel wire compatibility proven both directions |
 | 3 | One command for everything | `homa-vm-matrix`: every single-VM test plus every pair, run in parallel, printing a table (kernel(s), verdict, RPC counts, cp_node rates) | `nix run .#homa-vm-matrix` is the demo |
 | 4 | Lossy and slow links | `homa-pair-test-netem`: `tc netem loss 1% delay 1ms` on eth1 | Echo still completes, and the RESEND/retransmit counters in `/proc/net/homa_metrics` move |

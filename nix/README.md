@@ -101,6 +101,53 @@ VERDICT: PASS
 
 The whole run takes about 15 seconds once the kernel is in the store.
 
+### 5. Homa between two VMs
+
+```sh
+nix run .#homa-pair-test
+```
+
+This boots two VMs, `node0` and `node1`, joined by a private Ethernet link. The link is a
+QEMU socket connection, so it needs no root, tap or bridge. Homa then runs over that link
+between two separate kernels:
+
+```
+--- node0 (server)
+HOMA_PAIR_SERVER_START host=node0 kernel=7.3.0
+HOMA_PAIR_SERVER_INSMOD_OK
+HOMA_PAIR_SERVER_SERVERS_OK
+HOMA_PAIR_SERVER_READY
+HOMA_PAIR_SERVER_CLIENT_REPORT PASS
+HOMA_PAIR_SERVER_RMMOD_OK
+HOMA_PAIR_SERVER_DMESG_OK
+HOMA_PAIR_SERVER_PASS
+--- node1 (client)
+HOMA_PAIR_START host=node1 kernel=7.3.0
+HOMA_PAIR_INSMOD_OK
+HOMA_PAIR_PING_OK
+HOMA_PAIR_PEER_READY_OK
+HOMA_PAIR_ECHO responses=6 (want 6) data+grant packets=1256
+HOMA_PAIR_ECHO_OK
+HOMA_PAIR_CPNODE_homa ... homa_w4 clients: 0.24 Kops/sec, 0.17 Gbps out, 0.17 Gbps in, RTT (us) P50 4977.72 P99 16528.36 ...
+HOMA_PAIR_CPNODE_HOMA_OK
+HOMA_PAIR_CPNODE_tcp ... tcp_w4 clients: 0.12 Kops/sec, 0.05 Gbps out, 0.05 Gbps in, RTT (us) P50 218.30 P99 41996.96 ...
+HOMA_PAIR_CPNODE_TCP_OK
+HOMA_PAIR_RMMOD_OK
+HOMA_PAIR_DMESG_OK
+HOMA_PAIR_PASS
+VERDICT: PASS
+```
+
+The client does the following, in order:
+1. pings `node0`;
+2. runs echo RPCs from 100 B to 1 MB across the link;
+3. drives a few seconds of Homa's `cp_node` workload `w4`;
+4. drives the same workload over TCP for comparison.
+
+Then both VMs unload the module and check dmesg. A run takes about 35 seconds once
+cached. The link is emulated and the VMs share host CPUs, so the rates show that traffic
+flows, not how fast Homa is.
+
 ---
 
 ## Testing against different kernels
@@ -146,6 +193,7 @@ nix run   .#homa-microvm-test        # default kernel: insmod, echo, GRO/RPS, rm
 nix run   .#homa-microvm-test-<s>    # ... on one kernel
 nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel (slow)
 nix run   .#homa-microvm[-<s>]       # interactive guest
+nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
 
 nix build .#homa-image[-debug]       # OCI user-space image (docker load < result)
 
@@ -181,7 +229,7 @@ default each run makes a fresh `mktemp -d` and prints its path.
 | `userspace.nix` | `util/` tools and the `test/` unit harness |
 | `devshell.nix` + `shell-functions/` | the dev shell |
 | `oci.nix` | user-space OCI image |
-| `microvms/` | per-kernel microVM guests, the in-guest smoke test, and the orchestrator |
+| `microvms/` | per-kernel microVM guests, the in-guest smoke and pair tests, and the orchestrators |
 | `analysis/` | tiered static analysis (quick/standard/deep) |
 | `fuzz/` | libFuzzer harnesses for wire (de)serialization |
 
