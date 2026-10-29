@@ -18,7 +18,7 @@
   # Override the default kernel by passing another kernelPackages set.
   #
   # Default = nixpkgs' newest kernel (7.3 at the time of writing): Homa is being ported
-  # forward to 7.x. Upstream `main` needs the 7.1 port (nix/patches/) to build here.
+  # forward to 7.x. Upstream `main` builds here since the 7.1 port landed (e65a5c0).
 , kernelPackages ? pkgs.linuxPackages_latest
   # The unit harness and kernel-mock fuzzers need a kernel whose headers test/mock.c
   # supports; kept separate so it can lag the default.

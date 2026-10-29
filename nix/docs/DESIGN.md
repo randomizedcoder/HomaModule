@@ -105,10 +105,11 @@ A single derivation module is instantiated twice via a boolean, mirroring xdp2's
 
 `kernel.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
 default `kernelPackages = pkgs.linuxPackages_latest` (7.3), overridable, because Homa is
-being ported forward to 7.x. Upstream `main` needs the 7.1 port to build there; until that
-lands, `nix/patches/` carries it (fork draft #12) and every derivation builds the patched
-`homaSrc` rather than `self`. A patch that upstream has absorbed stops applying, which
-fails the build at patchPhase: that is the cue to delete it.
+being ported forward to 7.x. Every derivation builds `homaSrc` rather than `self`:
+`nix/patches/` can carry an upstream-pending fix that the default kernel needs. It carried
+the 7.1 port (fork draft #12) until upstream landed it as `e65a5c0`, and is empty now. A
+patch that upstream has absorbed stops applying, which fails the build at patchPhase: that
+is the cue to delete it.
 
 Kernels come from two places:
 

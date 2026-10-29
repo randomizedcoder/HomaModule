@@ -5,11 +5,14 @@ must not already be fixed or in flight upstream, and must not be an API-contract
 guard. Add a test only when behaviour observably changes, in `TEST_F` style placed
 next to the code's existing tests.
 
+**Status (2026-10-28):** both landed upstream, along with the four sparse follow-ups
+(#122–#125). See [`../pr-tracker.md`](../pr-tracker.md).
+
 Round 2 produced **two** candidates that meet the bar. Everything else from static
 analysis and fuzzing is a false positive, a duplicate of open PR #111, or style churn
 (see the two reports).
 
-## 1. Build on Linux 7.1 and later — fork draft #12
+## 1. Build on Linux 7.1 and later — fork draft #12, upstream #120 (landed `e65a5c0`, reworked by John)
 
 - **What:** Linux 7.1 removed `addr_len` from `proto.recvmsg` (8341c989ac77) and turned
   `net_hotdata.rps_sock_flow_table` into an `rps_tag_ptr` (dd378109d20f). `main` fails on
@@ -26,7 +29,7 @@ analysis and fuzzing is a false positive, a duplicate of open PR #111, or style 
   `SOCKADDR` at 6.18.57 breaks `test/mock.c`'s `connect` stubs, because 6.18.57 converted
   `bind` only. It needs a finer gate and is left for a separate change.
 
-## 2. Reject zero-length incoming messages — fork draft #13
+## 2. Reject zero-length incoming messages — fork draft #13, upstream #121 (landed `1d38026`)
 
 - **What:** `homa_message_in_init()` accepts `length == 0`, then indexes
   `small_msg_bytes[(length - 1) >> 6]`, which is `[-1]` and lands before the
@@ -50,9 +53,9 @@ analysis and fuzzing is a false positive, a duplicate of open PR #111, or style 
 | GRANT/RESEND priority → `priority_map[8]` OOB | Open PR #111 fixes it (fuzzer re-found it) |
 | GRO validation | Open PR #111 |
 | 7.1+ `homa_offload.c` RPS API | Needs a real port; overlaps PR #110 (7.x series) |
-| `homa_hijack.h` `ntohs`/`htons`, `__sum16` | Numerically identical; sparse annotations only |
+| `homa_hijack.h` `ntohs`/`htons`, `__sum16` | Dropped from round 2, then sent in round 3 as #123 (landed) |
 | `homa_ioc_info` struct-hole leak (smatch) | False positive: `memset` in `homa_rpc_get_info` |
 | cppcheck `uninitvar` x3 | False positive (list macros) |
 | clang-tidy `sizeof-expression`, widening | Macro expansions or bounded constants |
-| gcc 16 unused-but-set vars | Used by `tt_record`/metrics; style |
+| gcc 16 unused-but-set vars | Dead counters, never read (an earlier note wrongly said they feed `tt_record`); style only |
 | `homa_ctl_table` non-static | Deliberate (unit tests use it) |

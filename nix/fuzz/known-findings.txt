@@ -1,4 +1,4 @@
 # Sanitizer SUMMARY locations already triaged (see analysis-reports/round2/fuzzing-report.md).
 # The fuzz-mock smoke gate tolerates these; any other finding fails the build.
 # One "file:line" per line, matched against the sanitizer SUMMARY line.
-homa_incoming.c:63
+# (none: homa_incoming.c:63, small_msg_bytes[-1], fixed upstream by 1d38026 / PR #121)

@@ -50,7 +50,7 @@ nix flake check                      # run the checks
 |---|---|
 | `kernel.nix` | kernel selection (`linux_latest`) + `KDIR` + per-series matrix |
 | `kernel-src.nix` | prepared kernel trees from kernel.org tarballs or a local checkout |
-| `patches/` | upstream-pending Homa fixes the flake applies (7.1+ build) |
+| `patches/` | upstream-pending Homa fixes the flake applies (currently none) |
 | `packages.nix` | toolchain inventory (build deps, dev/analysis tools, python env) |
 | `env-vars.nix` | dev-shell environment fragment |
 | `module.nix` | `homa.ko` derivations (debug/release, per kernel) + `homa-build-matrix` |
