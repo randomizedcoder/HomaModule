@@ -23,6 +23,7 @@
 #   nix run   .#homa-microvm-test-debug    # ... under a KASAN/KMEMLEAK kernel
 #   nix run   .#homa-pair-test             # two VMs: echo + cp_node (Homa, TCP) over a link
 #   nix run   .#homa-pair-test-6_12-7_3    # ... server kernel, client kernel (every pairing)
+#   nix run   .#homa-pair-exp              # latency sweep (sysctls x workloads, metric deltas)
 #
 #   nix build .#homa-image                 # OCI userspace image  (docker load < result)
 #   nix build .#homa-image-debug

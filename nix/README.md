@@ -107,9 +107,9 @@ The whole run takes about 15 seconds once the kernel is in the store.
 nix run .#homa-pair-test
 ```
 
-This boots two VMs, `node0` and `node1`, joined by a private Ethernet link. The link is a
-QEMU socket connection, so it needs no root, tap or bridge. Homa then runs over that link
-between two separate kernels:
+This boots two VMs, `node0` and `node1`, joined by a private Ethernet link. The link is
+QEMU UDP between two localhost ports, so it needs no root, tap or bridge. Homa then runs
+over that link between two separate kernels:
 
 ```
 --- node0 (server)
@@ -126,11 +126,11 @@ HOMA_PAIR_START host=node1 kernel=7.3.0
 HOMA_PAIR_INSMOD_OK
 HOMA_PAIR_PING_OK
 HOMA_PAIR_PEER_READY_OK
-HOMA_PAIR_ECHO responses=6 (want 6) data+grant packets=1256
+HOMA_PAIR_ECHO responses=6 (want 6) data+grant packets=1335
 HOMA_PAIR_ECHO_OK
-HOMA_PAIR_CPNODE_homa ... homa_w4 clients: 0.24 Kops/sec, 0.17 Gbps out, 0.17 Gbps in, RTT (us) P50 4977.72 P99 16528.36 ...
+HOMA_PAIR_CPNODE_homa ... homa_w4 clients: 0.40 Kops/sec, 0.19 Gbps out, 0.19 Gbps in, RTT (us) P50 522.07 P99 33163.40 ...
 HOMA_PAIR_CPNODE_HOMA_OK
-HOMA_PAIR_CPNODE_tcp ... tcp_w4 clients: 0.12 Kops/sec, 0.05 Gbps out, 0.05 Gbps in, RTT (us) P50 218.30 P99 41996.96 ...
+HOMA_PAIR_CPNODE_tcp ... tcp_w4 clients: 0.40 Kops/sec, 0.15 Gbps out, 0.15 Gbps in, RTT (us) P50 372.96 P99 22185.27 ...
 HOMA_PAIR_CPNODE_TCP_OK
 HOMA_PAIR_RMMOD_OK
 HOMA_PAIR_DMESG_OK
@@ -205,6 +205,8 @@ nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel (slow)
 nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
 nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>
+nix run   .#homa-pair-exp            # latency sweep: cp_node per sysctl setting + metric deltas
+nix run   .#homa-pair-exp-socket     # ... over QEMU's TCP socket link (STATUS.md F2)
 
 nix build .#homa-image[-debug]       # OCI user-space image (docker load < result)
 

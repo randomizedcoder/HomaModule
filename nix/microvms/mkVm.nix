@@ -33,6 +33,8 @@
 , autoTest ? false
 , pairNode ? null     # null | "server" | "client"
 , pairPort            # host port of the socket link (unique per pair)
+, pairExperiments ? null  # sweep list for the client (pair.nix); null = normal pair test
+, pairLink ? "dgram"      # QEMU backend for eth1: "dgram" (UDP) | "socket" (TCP stream)
 }:
 
 let
@@ -63,7 +65,10 @@ let
   pair = constants.pair;
   isPair = pairNode != null;
   node = pair.nodes.${pairNode};
-  pairScripts = import ./pair.nix { inherit pkgs homaKoPath homaUtils pair; };
+  pairScripts = import ./pair.nix {
+    inherit pkgs lib homaKoPath homaUtils pair;
+    experiments = pairExperiments;
+  };
   testScript = if isPair then pairScripts.${pairNode} else smoke;
   testExe = lib.getExe testScript;
 
@@ -106,10 +111,22 @@ let
             mac = "52:54:00:00:00:01";
           }];
 
-          # Pair link (eth1): point-to-point QEMU socket, node0 listens and node1 connects.
+          # Pair link (eth1), point to point. "dgram": UDP between pairPort (node0) and
+          # pairPort + dgramPortOffset (node1). "socket": a TCP stream that node0 listens on
+          # and node1 connects to; it delays packets by milliseconds (STATUS.md F2), so it is
+          # kept only for comparison.
           qemu.extraArgs = lib.optionals isPair [
             "-netdev"
-            "socket,id=homapair,${node.role}=127.0.0.1:${toString pairPort}"
+            (if pairLink == "dgram" then
+              let
+                offset = node: if pairNode == node then pair.dgramPortOffset else 0;
+                local = pairPort + offset "client";
+                remote = pairPort + offset "server";
+              in
+              "dgram,id=homapair,local.type=inet,local.host=127.0.0.1,local.port=${toString local}"
+              + ",remote.type=inet,remote.host=127.0.0.1,remote.port=${toString remote}"
+            else
+              "socket,id=homapair,${node.role}=127.0.0.1:${toString pairPort}")
             "-device"
             "virtio-net-pci,netdev=homapair,mac=${node.mac}"
           ];
