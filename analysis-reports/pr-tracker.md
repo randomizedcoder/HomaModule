@@ -103,6 +103,10 @@ Upstream `main` at `4bd0275`, built with the fork's flake (`nix/patches` is now 
 
 So John's rework is good on both sides of the 7.1 gate.
 
+Posted on #120 on 2026-10-28 ([comment](https://github.com/PlatformLab/HomaModule/pull/120#issuecomment-6486061071)),
+with `--ipv4` (884/884) and the 7.3 `__STRIP__=1` build re-checked on `main`. The comment also raised
+the 6.18-stable gate issue below and offered a fix if 6.18 becomes the target LTS.
+
 One gap remains, and it predates #120: 6.18 stable backported both API changes, the
 recvmsg `addr_len` removal in 6.18.40 and `sockaddr_unsized` for bind in 6.18.57. Gates
 of the form `< KERNEL_VERSION(7, 1, 0)` / `(7, 0, 0)` therefore choose the old signatures
