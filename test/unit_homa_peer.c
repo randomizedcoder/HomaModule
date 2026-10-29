@@ -151,6 +151,21 @@ TEST_F(homa_peer, homa_peer_free_net__basics)
 	unit_sock_destroy(&hsk2);
 }
 
+TEST_F(homa_peer, homa_peer_free_net__wait_for_rcu_callbacks)
+{
+	/* The homa_net is freed as soon as homa_peer_free_net returns, so
+	 * the homa_route_free callbacks (which use it) must have finished.
+	 */
+	struct homa_route *route;
+
+	route = homa_route_get(&self->hsk, ip1111);
+	homa_route_release(route);
+	EXPECT_EQ(1, unit_count_peers(&self->homa));
+
+	homa_peer_free_net(self->hnet);
+	EXPECT_EQ(0, unit_count_peers(&self->homa));
+}
+
 TEST_F(homa_peer, homa_route_delete_fn)
 {
 	struct homa_route *route;
