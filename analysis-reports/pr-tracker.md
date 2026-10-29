@@ -16,6 +16,17 @@ John Ousterhout lands PRs by applying our commits to `main` himself, so a landed
 | 2, fuzzing + 7.x port (2026-10-21) | 2 | 2 | 0 |
 | 3, sparse (2026-10-22) | 4 | 4 | 0 |
 
+## Round 4: hand-found bugs (open)
+
+Opened 2026-10-28. Each was test-first: the new test fails on `main` and passes with the fix.
+
+| Upstream | Fork | Branch | Change |
+|---|---|---|---|
+| [#137](https://github.com/PlatformLab/HomaModule/pull/137) | #18 | `fix/qdisc-bypass-ipv6-hash` | `homa_qdisc_can_bypass` hashes all four IPv6 words (same-flow TCP could be reordered) |
+| [#138](https://github.com/PlatformLab/HomaModule/pull/138) | #19 | `fix/hijack-gro-ipv6-tcp` | Non-Homa IPv6 TCP goes to tcp6 `gro_receive`, not tcp4 |
+| [#139](https://github.com/PlatformLab/HomaModule/pull/139) | #20 | `fix/rpc-get-info-private-flag` | `test_bit(RPC_PRIVATE)`, not a mask (it tested `APP_NEEDS_LOCK`) |
+| [#140](https://github.com/PlatformLab/HomaModule/pull/140) | #21 | `fix/qdisc-destroy-next-qdisc` | `homa_qdisc_destroy` moves the pacer's `next_qdisc` cursor off the qdisc (use-after-free) |
+
 ## Round 3: sparse (`-D__CHECK_ENDIAN__ -Wsparse-all`), W=1
 
 Landed 2026-10-27, unchanged apart from a `Resolves #N` line. None of these has a test,
