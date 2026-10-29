@@ -24,6 +24,7 @@ protocol.
 > rebased onto upstream `main`. It is not part of upstream.
 
 - **Design and rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
+- **Findings and follow-ups from all the testing:** [`STATUS.md`](STATUS.md)
 - **Build status per kernel:** [`docs/STATUS.md`](docs/STATUS.md)
 - **Next: Homa traffic between pairs of VMs:** [`microvms/PLAN-pairs.md`](microvms/PLAN-pairs.md)
 
