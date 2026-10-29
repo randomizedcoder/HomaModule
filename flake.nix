@@ -72,8 +72,8 @@
         envVars = import ./nix/env-vars.nix { inherit pkgs lib kernelConfig pythonEnv; };
         shellFunctions = import ./nix/shell-functions { inherit pkgs lib; };
 
-        # Homa source with the forward-port patches in nix/patches/ applied (upstream main
-        # does not yet build on 7.1+). Every derivation builds this, not `self` directly.
+        # Homa source with any forward-port patches in nix/patches/ applied (currently none).
+        # Every derivation builds this, not `self` directly.
         homaSrc = import ./nix/patches { inherit pkgs; src = self; };
         # Kernel trees prepared from kernel.org tarballs (7.0-7.2) or a local checkout.
         kernelSrc = import ./nix/kernel-src.nix { inherit pkgs lib; };

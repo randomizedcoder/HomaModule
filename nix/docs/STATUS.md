@@ -5,16 +5,16 @@
 
 | | |
 |---|---|
-| **Branch** | `nix-flake` (rebased on upstream `main` = `ae45ada`) |
+| **Branch** | `nix-flake` (rebased on upstream `main` = `4bd0275`) |
 | **Current phase** | Round 2 done; flake targets 7.x with per-kernel builds and microVMs |
-| **Last update** | 2026-10-22 |
+| **Last update** | 2026-10-28 |
 | **nixpkgs** | `nixos-unstable` |
 | **Default kernel** | `linuxPackages_latest` (7.3); unit harness and fuzz-mock on 6.18.57 |
 
 ## Key outcome — 7.x
-- Upstream `main` doesn't build on 7.1+ (recvmsg `addr_len` removal, `rps_tag_ptr`). The flake
-  applies fork draft #12 from `nix/patches/` to every derivation until upstream has it.
-- With that patch, `homa.ko` builds on 6.12 and 7.0–7.3 and on a local 7.3-rc7 checkout.
+- Upstream `main` builds on 7.1+ since our port (#120) landed as `e65a5c0`, with John's
+  rework. `nix/patches/` is empty again. Upstream PR status: `analysis-reports/pr-tracker.md`.
+- `homa.ko` builds on 6.12 and 7.0–7.3 and on a local 7.3-rc7 checkout.
   **It loads and passes echo RPCs (100 B–1 MB) in microVMs on 7.3.0 and 6.12.113**, both over
   loopback (recvmsg path) and across netns over veth with GRO and the RPS flow table on
   (7.3: 1728 `homa_gro_receive`, 475 `homa_set_softirq_cpu` calls, so the `rps_tag_ptr` code runs).
@@ -68,9 +68,9 @@
 - [x] **7.x** — default 7.3, `nix/patches/`, `kernel-src.nix` (7.0–7.2 + local), `homa-build-matrix`, per-kernel microVMs ✅.
 
 ## Open follow-ups
-1. **fuzz-mock:** remove entries from `nix/fuzz/known-findings.txt` as upstream fixes land.
-2. **nix/patches:** delete `0001-build-on-linux-7.1-and-later.patch` once upstream carries the
-   7.1 port (it will stop applying).
+1. **fuzz-mock:** remove entries from `nix/fuzz/known-findings.txt` as upstream fixes land
+   (the only one, `homa_incoming.c:63`, went with #121; the list is empty).
+2. ~~**nix/patches:** delete the 7.1 patch once upstream carries it~~ (done 2026-10-28).
 3. **6.18.57:** goes green once a 6.18-stable compat fix lands (recvmsg 6.18.40, bind 6.18.57).
 4. **Debug microVM:** run `homa-microvm-test-debug` (KASAN kernel build, ~30 min).
 5. **Unit harness on 7.x:** `test/mock.c` against 7.3 headers, so `homa-tests`/fuzz-mock can

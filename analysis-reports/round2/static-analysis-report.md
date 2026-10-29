@@ -80,9 +80,11 @@ Nothing in this round's static analysis is a new reachable bug. In detail:
   is a small constant or bounded sysctl, so no overflow is possible.
 - **`homa_ioc_info()` two-pass RPC array**: the second pass stops at the first
   pass's count (`if (i == num_rpcs) break`), so there is no overflow.
-- **gcc 16 `-Wunused-but-set-variable`** (`homa_timer.c:203`, `homa_qdisc.c:641`,
-  `homa_qdisc.c:1329-1330`): the variables feed `tt_record*` and `INC_METRIC`,
-  which compile out in some configs. Style only.
+- **gcc 16 `-Wunused-but-set-variable`** (`homa_timer.c:203` `total_rpcs`,
+  `homa_qdisc.c:641` `element`, `homa_qdisc.c:1335-1336` `num_updates`/`recovered`):
+  *correction (2026-10-28):* these do **not** feed `tt_record*` or metrics. Each is
+  written and never read in any configuration, which makes them leftover debugging
+  counters. Removing them is style only, and they still warn on upstream `4bd0275`.
 - **`homa_devel.c`**: `%u` format mismatch (line 555), non-static
   `snapshot_*`, `__sum16` return. These are in the debug-only file.
 

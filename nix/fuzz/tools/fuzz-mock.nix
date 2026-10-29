@@ -61,7 +61,7 @@ pkgs.stdenv.mkDerivation {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
-    known=$(grep -v '^#' nix/fuzz/known-findings.txt | grep .)
+    known=$(grep -v '^#' nix/fuzz/known-findings.txt | grep . || true)
     for f in out/bin/fuzz_*; do
       name=$(basename "$f")
       if "$f" -runs=0 out/corpus > "smoke-$name.log" 2>&1; then
@@ -69,7 +69,7 @@ pkgs.stdenv.mkDerivation {
         continue
       fi
       summary=$(grep -m1 SUMMARY "smoke-$name.log" || true)
-      if [ -n "$summary" ] && echo "$summary" | grep -qF "$known"; then
+      if [ -n "$summary" ] && [ -n "$known" ] && echo "$summary" | grep -qF "$known"; then
         echo "smoke: $name known finding: $summary"
       else
         cat "smoke-$name.log"
