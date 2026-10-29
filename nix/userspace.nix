@@ -8,7 +8,7 @@
 # The test harness compiles the kernel C files in user space against the pinned kernel's
 # headers, so it needs KDIR + ARCH=x86 (test/Makefile hardcodes x86 include paths). This is
 # kernel-version sensitive; if it fails against the newest kernel that is recorded in
-# docs/STATUS.md and the static-analysis report (see docs/DESIGN.md §5).
+# nix/STATUS.md and the static-analysis report (see docs/DESIGN.md §5).
 #
 # Usage in flake.nix:
 #   userspacePkgs = import ./nix/userspace.nix { inherit pkgs lib kernelConfig; src = self; };
