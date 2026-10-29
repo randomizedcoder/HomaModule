@@ -14,7 +14,8 @@ The rules are those in [`../pr-tracker.md`](../pr-tracker.md#what-the-maintainer
 In-flight upstream work to avoid duplicating: #133 (CI), #134 (strip.py), #135
 (`homa_rpc_alloc_server` `waiting_for_bufs`), #136 (`homa_sock_destroy` shutdown).
 
-**Status (2026-10-28):** 1–4 are fork drafts #18–#21. Each was done test-first: the
+**Status (2026-10-28):** 1–4 are fork drafts #18–#21, opened upstream as PlatformLab
+#137–#140 (same order). Each was done test-first: the
 new test failed on `main`, then passed with the fix. The full unit suite is 885/885 in
 both IPv6 and `--ipv4` modes, `homa.ko` compiles with and without `__STRIP__` on 7.3,
 and checkpatch is clean.
