@@ -25,12 +25,14 @@ Two guests built by the existing `mkVm.nix`, each with a second NIC:
 ```
  node0 (server, kernel A)              node1 (client, kernel B)
  eth0  user NAT (store/init)           eth0  user NAT
- eth1  10.88.0.1/24  ◄── QEMU -netdev socket ──►  eth1 10.88.0.2/24
-       listen=127.0.0.1:<port>                connect=127.0.0.1:<port>
+ eth1  10.88.0.1/24  ◄── QEMU -netdev dgram ──►  eth1 10.88.0.2/24
+       udp 127.0.0.1:<port>                   udp 127.0.0.1:<port>+1000
 ```
 
-- `-netdev socket,listen|connect`: a private L2 link between the two qemu processes. No root,
-  tap or bridge needed, so it works on any host with KVM, and in CI.
+- `-netdev dgram` (UDP between two localhost ports): a private L2 link between the two qemu
+  processes. No root, tap or bridge needed, so it works on any host with KVM, and in CI. The
+  first version used `-netdev socket,listen|connect` (a TCP stream); that stalls some packets
+  for milliseconds (STATUS.md F2) and is kept only as `homa-pair-exp-socket`.
 - The port is derived from the pair name so different pairs can run in parallel.
 - Hostnames are `node0`/`node1` with `/etc/hosts` entries, because `cp_node` addresses servers
   as `node<N>`.
@@ -85,15 +87,14 @@ Housekeeping, done with phase 1:
 
 ## Observations
 
-- Over the VM link, Homa's cp_node P50 RTT is about 5 ms, against about 0.3 ms for TCP on the
-  same workload. Every pairing shows this. The Homa qdisc isn't attached in these tests, so
-  round-4 candidate 5 (`SPEED_UNKNOWN`) isn't the cause. The leading suspect is Homa's default
-  `link_mbps = 25000` against a link that carries about 1–2 Gb/s. See [`../STATUS.md`](../STATUS.md)
-  (F2) for the follow-up experiments.
+- On the original `socket` link, Homa's cp_node P50 RTT was about 5 ms against about 0.3 ms
+  for TCP. The latency sweep (`homa-pair-exp`) traced it to the link: QEMU's TCP stream
+  backend delays packets, and Homa recovers through its 5 × 1 ms RESEND timer. Over `dgram`
+  the two protocols match. See [`../STATUS.md`](../STATUS.md) F2.
 
 ## Caveats
 
-- QEMU socket netdev runs at roughly 1–2 Gb/s, and the guests share host CPUs. cp_node numbers
+- The emulated link is slow (a few hundred Mb/s to a few Gb/s), and the guests share host CPUs. cp_node numbers
   show that traffic flows, not how Homa performs; the demo output says so.
 - Everything stays on the fork's `nix-flake` branch. Nothing goes upstream. The only upstream
   benefit is bugs it finds, for example phase 5.

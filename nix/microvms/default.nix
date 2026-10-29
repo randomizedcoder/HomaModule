@@ -37,9 +37,11 @@ let
     , autoTest ? false
     , pairNode ? null
     , pairPort ? constants.pair.socketPortBase
+    , pairExperiments ? null
+    , pairLink ? "dgram"
     }: import ./mkVm.nix {
       inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
-        kernelPackages withSanitizers autoTest pairNode pairPort;
+        kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink;
       homaModule = buildModule { inherit kernelPackages; };
       homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
     };
@@ -50,11 +52,44 @@ let
   };
 
   # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
-  mkPairTest = { serverKp, clientKp, label, port }: import ./lib-pair.nix {
-    inherit pkgs lib constants label port;
-    serverRunner = mkGuest { kernelPackages = serverKp; autoTest = true; pairNode = "server"; pairPort = port; };
-    clientRunner = mkGuest { kernelPackages = clientKp; autoTest = true; pairNode = "client"; pairPort = port; };
+  mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./lib-pair.nix {
+    inherit pkgs lib constants label port link;
+    serverRunner = mkGuest {
+      kernelPackages = serverKp;
+      autoTest = true;
+      pairNode = "server";
+      pairPort = port;
+      pairExperiments = experiments;
+      pairLink = link;
+    };
+    clientRunner = mkGuest {
+      kernelPackages = clientKp;
+      autoTest = true;
+      pairNode = "client";
+      pairPort = port;
+      pairExperiments = experiments;
+      pairLink = link;
+    };
   };
+
+  # Sweep for STATUS.md F2 (Homa's P50 RTT over the VM link): one cp_node run per entry,
+  # with the sysctls applied on both nodes.
+  latencyExperiments =
+    let
+      homa = name: workload: sysctls: { inherit name workload sysctls; proto = "homa"; gbps = "0.2"; };
+      tcp = name: workload: { inherit name workload; proto = "tcp"; gbps = "0.2"; sysctls = { }; };
+    in
+    [
+      (homa "w4-default" "w4" { })
+      (homa "w4-link1000" "w4" { link_mbps = 1000; })
+      (homa "w4-link2000" "w4" { link_mbps = 2000; })
+      (homa "w4-resend2" "w4" { resend_ticks = 2; })
+      (homa "w4-resend10" "w4" { resend_ticks = 10; })
+      (tcp "w4-tcp" "w4")
+      (homa "w1-default" "w1" { })
+      (homa "w1-link1000" "w1" { link_mbps = 1000; })
+      (tcp "w1-tcp" "w1")
+    ];
 
   # Every ordered (server, client) pair of VM kernels: same-kernel pairs and both directions
   # of each mixed pair (wire compatibility between Homa builds for different kernels). Each
@@ -95,6 +130,23 @@ in
       clientKp = defaultKp;
       label = "";
       port = constants.pair.socketPortBase;
+    };
+    homa-pair-exp = mkPairTest {
+      serverKp = defaultKp;
+      clientKp = defaultKp;
+      label = "-exp";
+      port = constants.pair.socketPortBase + 50;
+      experiments = latencyExperiments;
+    };
+    # The same sweep over QEMU's TCP stream backend, which adds the multi-millisecond
+    # stalls of STATUS.md F2.
+    homa-pair-exp-socket = mkPairTest {
+      serverKp = defaultKp;
+      clientKp = defaultKp;
+      label = "-exp-socket";
+      port = constants.pair.socketPortBase + 60;
+      experiments = latencyExperiments;
+      link = "socket";
     };
   } // perKernel // perPair;
 }

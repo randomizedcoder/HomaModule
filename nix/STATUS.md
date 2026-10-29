@@ -31,21 +31,26 @@ Related docs:
 | Fuzzing, wire decoder | `fuzz-run`, `fuzz-selftest` | ✅ selftest canary PASS |
 | Single VM | `homa-microvm-test-{6_12,7_3}` | ✅ insmod, loopback echo, netns/veth with GRO+RPS (about 1.7k `homa_gro_receive` and 460 `homa_set_softirq_cpu` calls), rmmod, clean dmesg |
 | Two VMs | `homa-pair-test-<server>-<client>` | ✅ all four 6.12/7.3 pairings: ping, echo 100 B–1 MB, cp_node w4 over Homa and over TCP, clean dmesg on both. 8 VMs in parallel finish in 50 s |
+| Latency sweep | `homa-pair-exp`, `homa-pair-exp-socket` | ✅ F2 explained: QEMU's TCP `socket` link stalls packets; over the UDP `dgram` link (now the default) Homa's P50 matches TCP's |
 | KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
 ### cp_node over the VM link (workload w4, 0.2 Gb/s target, 6 s)
 
+UDP `dgram` link (the default since F2). All five pair targets ran at once (10 VMs), so the
+medians are higher than the single-pair sweep in F2.
+
 | Server ↔ client | Homa Kops/s | Homa RTT P50 / P99 (µs) | TCP Kops/s | TCP RTT P50 / P99 (µs) |
 |---|---|---|---|---|
-| 6.12 ↔ 6.12 | 0.25 | 4777 / 20700 | 0.15 | 251 / 42143 |
-| 6.12 ↔ 7.3 | 0.24 | 2927 / 19004 | 0.12 | 274 / 42638 |
-| 7.3 ↔ 6.12 | 0.23 | 4780 / 21209 | 0.16 | 329 / 42130 |
-| 7.3 ↔ 7.3 | 0.18 | 5024 / 23464 | 0.13 | 343 / 42682 |
+| 6.12 ↔ 6.12 | 0.42 | 294 / 31213 | 0.41 | 569 / 22088 |
+| 6.12 ↔ 7.3 | 0.35 | 452 / 34976 | 0.41 | 378 / 23300 |
+| 7.3 ↔ 6.12 | 0.37 | 490 / 31825 | 0.42 | 318 / 22345 |
+| 7.3 ↔ 7.3 | 0.38 | 452 / 34574 | 0.42 | 383 / 20973 |
 
-These are functional numbers: an emulated link (QEMU socket, about 1–2 Gb/s) between VMs that
-share host CPUs. They show that traffic flows, not how fast Homa is. Even so, the P50 gap is
-large enough to look into (F2).
+On the earlier TCP `socket` link, Homa's P50 was 2927–5024 µs and TCP's P99 about 42 ms (F2).
+
+These are functional numbers: an emulated link between VMs that share host CPUs. They show
+that traffic flows, not how fast Homa is.
 
 ### Build matrix (`nix build .#homa-build-matrix`)
 
@@ -95,28 +100,57 @@ and a `-Wincompatible-pointer-types` warning in the unit build.
   to move `main` to the next LTS. If that is 7.3 or later, the problem goes away.
 - **Follow-up:** wait for his answer. If 6.18 is the target, send a small gate fix.
 
-### F2: Homa's median RTT is 11–16× TCP's over the VM link
+### F2: Homa's 5 ms median over the VM link was QEMU's `socket` backend (resolved)
 
-In every pairing, Homa's cp_node P50 is about 3–5 ms against about 0.3 ms for TCP. Homa's P99
-is about half of TCP's. All RPCs complete, and dmesg is clean.
+The first pair runs showed Homa's cp_node P50 at about 3–5 ms against about 0.3 ms for TCP,
+in every pairing. The sweep target (`nix run .#homa-pair-exp`) runs cp_node once per
+experiment, sets `net.homa.*` sysctls on both nodes, and prints the per-node deltas of the Homa
+metrics, eth1/virtio/qdisc/softnet drops and TCP retransmits. It found the cause in four runs.
 
-- **Not the cause:** the Homa qdisc isn't attached in these tests, so round-4 candidate 5
-  (`SPEED_UNKNOWN` from virtio-net in `homa_qdev_update_sysctl`) doesn't apply here.
-- **Leading suspect:** Homa assumes a 25 Gb/s link (`homa->link_mbps = 25000`,
-  `homa_utils.c:32`), but the link carries about 1–2 Gb/s. Homa sizes its unscheduled bytes
-  and grants for the faster link, so packets may pile up in the virtio/QEMU queues. That
-  would explain a high median with a tolerable tail.
-- **Other candidates:** timer-driven retransmission (RESENDs), the bursty w4 size mix, or
-  QEMU socket buffering.
-- **Experiments (cheap, in the pair test):**
-  1. Set `net.homa.link_mbps` to 1000–2000 on both nodes, and re-measure.
-  2. Diff `/proc/net/homa_metrics` before and after the cp_node run, looking at
-     `resent_packets`, `packets_sent_RESEND` and the grant counters.
-  3. Repeat with workload `w1` (small messages) to separate per-packet latency from
-     queueing.
-  4. If it is still unexplained, take a timetrace (`tthoma.py`) of one slow RPC.
-- **Why it matters:** if (1) fixes it, it's a configuration note for VM users. If not, it may
-  be a real Homa latency bug, which would be worth an upstream report.
+**1. The median is Homa's RESEND timer.** Homa sends a RESEND after `resend_ticks` (default 5)
+ticks of 1 ms with nothing received. The P50 tracks that setting, and `link_mbps` does
+nothing:
+
+| Run (7.3 ↔ 7.3, `socket` link) | Homa P50 / P99 (µs) | Client RESENDs sent | Server packets resent |
+|---|---|---|---|
+| w4, defaults | 4717 / 15611 | 2146 | 19467 |
+| w4, `link_mbps=1000` | 4837 / 16026 | 2116 | 19403 |
+| w4, `link_mbps=2000` | 4873 / 16217 | 2132 | 20252 |
+| w4, `resend_ticks=2` | 2028 / 15064 | 2073 | 12512 |
+| w4, `resend_ticks=10` | 9577 / 24441 (2580 / 30620 in 1 of 3 runs) | 2379 | 18745 |
+| w1 (about 190 B), defaults | 113 / **5067** | 1672 | 2357 |
+| TCP w4 / w1 | 225 / 42151, 117 / 41038 | 95 / 6 TCP retransmits | |
+
+**2. Nothing is lost; packets arrive late.** The client's eth1 rx count equals the server's
+tx count to within one packet, and the eth1, virtio, qdisc and softnet drop counters all
+stay at zero. On w1, the client's `unknown_rpcs` (2326) roughly equals the server's
+`resent_packets` (2335). So the original response arrives before its retransmission, and
+the late copy finds the RPC already finished. TCP retransmits too, on a link that drops
+nothing, and its P99 is about 42 ms.
+
+**3. The UDP `dgram` backend removes the stalls** (`homa-pair-exp`; the old link is
+`homa-pair-exp-socket`):
+
+| Run (7.3 ↔ 7.3) | `socket` P50 / P99 (µs) | `dgram` P50 / P99 (µs) | `dgram` Kops/s | `dgram` RESENDs |
+|---|---|---|---|---|
+| Homa w4, defaults | 4717 / 15611 | 177 / 33386 | 0.45 | 0 |
+| Homa w4, `link_mbps=1000` | 4837 / 16026 | 156 / 25195 | 0.36 | 0 |
+| TCP w4 | 225 / 42151 | 167 / 24519 | 0.44 | (0 retransmits) |
+| Homa w1, defaults | 113 / 5067 | 99 / 166 | 9.78 | 0 |
+| TCP w1 | 117 / 41038 | 106 / 225 | 9.02 | (0 retransmits) |
+
+- **Conclusion:** QEMU's `-netdev socket` (a TCP stream between the two QEMU processes) holds
+  some packets for milliseconds. Homa recovers through its 5 ms RESEND timer and TCP through
+  retransmission, which explains both the 5 ms Homa P50 and the 42 ms TCP P99. Homa behaves
+  as designed. It is not a Homa bug, and there is nothing to report upstream. Where in QEMU
+  the packets wait has not been investigated.
+- **Change:** the pair tests now use `-netdev dgram` (UDP between two host ports) by default.
+  It also needs no listen/connect ordering.
+- **Still open, minor:** over `dgram`, Homa's w4 P99 (25–33 ms) is close to TCP's (about
+  25 ms). Both probably come from the w4 size mix on a slow emulated link, but this hasn't
+  been checked.
+- **Not the cause:** `link_mbps` (no effect, above), and round-4 candidate 5
+  (`SPEED_UNKNOWN`), because the Homa qdisc isn't attached in these tests.
 
 ### F3: Homa's built-in packet-drop knobs do nothing
 
@@ -182,7 +216,7 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 
 | # | Action | Why | Effort | Who |
 |---|---|---|---|---|
-| 1 | F2 experiments: `link_mbps`, metric deltas, `w1`, timetrace | Explain Homa's RTT gap; a possible real bug | small (pair-test variants) | us |
+| 1 | ~~F2 experiments~~ ✅ done: QEMU `socket` backend stall, pair tests moved to `dgram` | — | — | — |
 | 2 | PLAN-pairs phase 3: `homa-vm-matrix` summary runner | One-command demo; would also have caught F2 at a glance | small | us |
 | 3 | PLAN-pairs phase 4: netem loss and delay | Test RESEND and timeout paths across a real link (F3) | small | us |
 | 4 | PLAN-pairs phase 5: Homa qdisc on virtio | Should reproduce round-4 candidate 5 in a real kernel; exercises the pacer | medium | us |
@@ -191,7 +225,7 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 | 7 | Round-4 candidates 5–8, test-first | More upstream fixes in John's style | medium | us → upstream |
 | 8 | Which LTS will `main` target? | Decides F1 and the unit KDIR (F5) | — | ask John (#120) |
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
-| 10 | Post the F2 result upstream if it turns out to be Homa, not the VM | Real-world latency issue | — | after #1 |
+| 10 | ~~Post F2 upstream~~ not needed: VM link, not Homa | — | — | — |
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
@@ -204,4 +238,4 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 | 2026-09-18 | Flake built in phases: design doc, module and user-space derivations, dev shell, microVM, OCI image, tiered static analysis, fuzzing. Round 1 reports in `analysis-reports/round1/` |
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
 | 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
-| 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc |
+| 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
