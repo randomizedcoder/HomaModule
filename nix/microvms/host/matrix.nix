@@ -1,7 +1,8 @@
 # nix/microvms/host/matrix.nix
 #
-# One command for every VM test (PLAN-pairs.md phase 3): runs each per-kernel single-VM
-# smoke test and each (server, client) pair test in parallel, then prints a summary table
+# One command for every VM test (PLAN-pairs.md phase 3): runs each per-kernel smoke test,
+# lifecycle and pair lifecycle, and each (server, client) pair test, in parallel, then
+# prints a summary table
 # (also written to $logdir/summary.md):
 #
 #   | Test | Kernel(s) | Verdict | Time (s) | Echo | GRO calls | Homa Kops/s | Homa P50 / P99 (us) | TCP ... |
@@ -14,7 +15,7 @@
 { lib
 , tclApps   # tcl.nix
 , echoRpcs  # constants.echoRpcs
-, tests     # list of { name, kernels, exe }: exe is a homa-microvm-test-* or homa-pair-test-* package
+, tests     # list of { name, kernels, exe }: exe is one test's package (default.nix)
 }:
 
 tclApps.mkTclApp {

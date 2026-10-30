@@ -20,7 +20,7 @@
 # (hvc0, a root shell) on a second port for fast host-driven commands.
 #
 # pairNode = "server" | "client" makes the guest one half of the two-VM pair test: a second
-# NIC (eth1) on a QEMU socket link to the other guest, a static IP, cp_node's node<N>
+# NIC (eth1) on a QEMU link (pairLink) to the other guest, a static IP, cp_node's node<N>
 # hostnames, and pair.nix's script in place of the smoke test.
 
 { pkgs
@@ -35,7 +35,7 @@
 , withSanitizers ? false
 , autoTest ? false
 , pairNode ? null     # null | "server" | "client"
-, pairPort            # host port of the socket link (unique per pair)
+, pairPort ? null     # host port of the pair link (unique per pair)
 , pairExperiments ? null  # sweep list for the client (pair.nix); null = normal pair test
 , pairLink ? "dgram"      # QEMU backend for eth1: "dgram" (UDP) | "socket" (TCP stream)
 , consolePorts ? null     # { serial; virtio; }: lifecycle guest consoles on host TCP ports
@@ -81,6 +81,7 @@ let
     inherit (constants) oopsRegex echoRpcs;
     experiments = pairExperiments;
   };
+  qdisc = import ./qdisc.nix { inherit pkgs; };
   testScript = if isPair then pairScripts.${pairNode} else smoke;
   testExe = lib.getExe testScript;
   isLifecycle = consolePorts != null;
@@ -184,7 +185,7 @@ let
         networking.hostName = if isPair then node.hostname else constants.hostname;
 
         environment.systemPackages = [ pkgs.kmod pkgs.iproute2 pkgs.coreutils homaUtils testScript ]
-          ++ lib.optionals isPair [ pairScripts.nodeStats (import ./qdisc.nix { inherit pkgs; }) ];
+          ++ lib.optionals isPair [ pairScripts.nodeStats qdisc ];
         environment.variables.HOMA_KO = homaKoPath;
 
         systemd.services.homa-test = lib.mkIf autoTest {

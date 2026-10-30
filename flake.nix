@@ -15,6 +15,7 @@
 #   nix build .#homa-build-matrix          # every kernel above -> summary.md (never fails)
 #   nix build .#homa-module-riscv64        # cross-compiled homa.ko: riscv64, aarch64 (+ -strip)
 #   nix build .#homa-cross-matrix          # both arches: homa.ko + util/ report -> summary.md
+#   nix build .#linux-kdir-riscv64-7_3     # the prepared kernel tree a cross build uses (+ aarch64)
 #   HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-module-local
 #   nix build .#homa-utils                 # user-space tools from util/
 #   nix build .#homa-utils-debug           # user-space tools with AddressSanitizer
@@ -35,7 +36,7 @@
 #
 #   nix build .#analysis-quick             # python + shell + clang-format (no kernel needed)
 #   nix build .#analysis-standard          # + clang-tidy + cppcheck
-#   nix build .#analysis-deep              # + sparse (endian) + smatch + checkpatch
+#   nix build .#analysis-deep              # + sparse (endian) + smatch
 #
 #   nix build .#fuzz                       # build all libFuzzer harnesses
 #   FUZZ_TIME=300 ./result/bin/run-fuzzers #   ... then run them for 5 min

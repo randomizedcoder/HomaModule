@@ -1,7 +1,7 @@
 # nix/microvms/default.nix
 #
 # microVM assembly (uds-rdma-proxy pattern, one VM per kernel like xtcp2). Instantiates the
-# guest (mkVm) and the orchestrator (lib) and exposes:
+# guest (guest/mkVm.nix) and the host-side drivers (host/) and exposes:
 #   homa-microvm[-<series>]        the QEMU runner package (nix run boots it directly)
 #   homa-microvm-test[-<series>]   boot, run smoke.nix in the guest (insmod, loopback echo
 #                                  RPCs, rmmod), PASS/FAIL from the console log
@@ -14,9 +14,12 @@
 #   homa-pair-lifecycle[-<series>] the pair driven over both consoles, with timed phases and
 #                                  tc netem loss/delay phases (pair-lifecycle.nix)
 #   homa-pair-exp[-socket]         latency sweep over the pair link (STATUS.md F2)
-#   homa-vm-matrix                 every homa-microvm-test-<series> and pair, in parallel,
-#                                  with a summary table (matrix.nix)
-# <series> is every kernel/config.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
+#   homa-vm-matrix                 every per-series smoke test, lifecycle, pair lifecycle and
+#                                  pair test, in parallel, with a summary table (matrix.nix)
+#   homa-vm-compare                two matrix runs' logs, phase by phase
+#   homa-tcl-test, homa-tcl-lint   the Tcl drivers' tests and lint (host/tcl.nix), which
+#                                  checks.tcl-tests also runs
+# <series> is every kernel/config.nix vmMatrix entry (6_12, 7_3); the unsuffixed names use the
 # default kernel. Tests share nothing on the host, so they can run in parallel.
 #
 # Called from nix/scope.nix. Host ports come from ports.nix, which fails evaluation if two
@@ -28,12 +31,12 @@
 , microvm
 , nixpkgs
 , kernelConfig
-, buildSystem
 , buildModule
 , homaUtils
 }:
 
 let
+  buildSystem = pkgs.stdenv.hostPlatform.system;
   constants = import ./constants.nix { inherit lib; };
   tclApps = import ./host/tcl.nix { inherit pkgs lib; inherit (constants) oopsRegex; };
   metrics = import ./guest/metrics.nix { inherit pkgs lib; };
@@ -57,8 +60,8 @@ let
     linkNames =
       [
         { name = "pair-test"; link = "dgram"; }
-        { name = "pair-exp"; link = "dgram"; }
-        { name = "pair-exp-socket"; link = "socket"; }
+        { name = "pair-test-exp"; link = "dgram"; }
+        { name = "pair-test-exp-socket"; link = "socket"; }
       ]
       ++ map (n: { name = "pair-lifecycle-${n}"; link = "dgram"; }) ([ "default" ] ++ vmSeries)
       ++ map (p: { name = "pair-test-${pairName p}"; link = "dgram"; }) pairList;
@@ -69,7 +72,7 @@ let
     , withSanitizers ? false
     , autoTest ? false
     , pairNode ? null
-    , pairPort ? ports.link "pair-test"
+    , pairPort ? null
     , pairExperiments ? null
     , pairLink ? "dgram"
     , consolePorts ? null
@@ -112,26 +115,24 @@ let
       clientRunner = node "client";
     };
 
-  # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
-  mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./host/pair-test.nix {
-    inherit pkgs constants label port link;
-    serverRunner = mkGuest {
-      kernelPackages = serverKp;
-      autoTest = true;
-      pairNode = "server";
-      pairPort = port;
-      pairExperiments = experiments;
-      pairLink = link;
+  # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp, linked on the
+  # port of "pair-test<label>".
+  mkPairTest = { serverKp, clientKp, label, experiments ? null, link ? "dgram" }:
+    let
+      port = ports.link "pair-test${label}";
+      node = pairNode: kernelPackages: mkGuest {
+        inherit kernelPackages pairNode;
+        autoTest = true;
+        pairPort = port;
+        pairExperiments = experiments;
+        pairLink = link;
+      };
+    in
+    import ./host/pair-test.nix {
+      inherit pkgs constants label port link;
+      serverRunner = node "server" serverKp;
+      clientRunner = node "client" clientKp;
     };
-    clientRunner = mkGuest {
-      kernelPackages = clientKp;
-      autoTest = true;
-      pairNode = "client";
-      pairPort = port;
-      pairExperiments = experiments;
-      pairLink = link;
-    };
-  };
 
   # Sweep for STATUS.md F2 (Homa's P50 RTT over the VM link): one cp_node run per entry,
   # with the sysctls applied on both nodes.
@@ -157,11 +158,10 @@ let
       serverKp = kernelConfig.vmMatrix.${p.server};
       clientKp = kernelConfig.vmMatrix.${p.client};
       label = "-${pairName p}";
-      port = ports.link "pair-test-${pairName p}";
     }))
     pairList);
 
-  perKernel =
+  kernelTests =
     forKernels "homa-microvm" (_: kernelPackages: mkGuest { inherit kernelPackages; })
     // forKernels "homa-microvm-test" (name: kernelPackages: mkTest {
       inherit kernelPackages;
@@ -181,7 +181,7 @@ let
           (kind: {
             name = "homa-${kind}-${s}";
             kernels = s;
-            exe = perKernel."homa-${kind}-${s}";
+            exe = kernelTests."homa-${kind}-${s}";
           }) [ "microvm-test" "lifecycle" "pair-lifecycle" ])
         vmSeries
       ++ map
@@ -205,13 +205,11 @@ in
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "";
-      port = ports.link "pair-test";
     };
     homa-pair-exp = mkPairTest {
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "-exp";
-      port = ports.link "pair-exp";
       experiments = latencyExperiments;
     };
     # The same sweep over QEMU's TCP stream backend, which adds the multi-millisecond
@@ -220,7 +218,6 @@ in
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "-exp-socket";
-      port = ports.link "pair-exp-socket";
       experiments = latencyExperiments;
       link = "socket";
     };
@@ -230,7 +227,7 @@ in
     homa-tcl-lint = tclApps.lint;
     # Two matrix runs' logs, phase by phase: homa-vm-compare old-logdir new-logdir.
     homa-vm-compare = tclApps.mkTclApp { name = "homa-vm-compare"; driver = "vm-compare.tcl"; };
-  } // perKernel // perPair;
+  } // kernelTests // perPair;
 
   # The Tcl drivers' tests and lint (tcl.nix).
   checks.tcl-tests = tclApps.tests;

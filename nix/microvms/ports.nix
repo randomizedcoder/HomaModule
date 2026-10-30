@@ -8,7 +8,7 @@
 #   pairConsoles <name>
 #                    { node0 = { serial; virtio; }; node1 = ...; }: a pair lifecycle's
 #                    consoles (TCP), four ports from lifecycle.pairConsoleBase on
-#   link <name>      a pair's eth1 link: one port from pair.socketPortBase on. A "dgram"
+#   link <name>      a pair's eth1 link: one port from pair.linkPortBase on. A "dgram"
 #                    link is UDP on link and link + pair.dgramPortOffset, a "socket" link
 #                    TCP on link.
 #
@@ -37,7 +37,7 @@ let
       node1 = { serial = base + 2; virtio = base + 3; };
     };
 
-  link = name: pair.socketPortBase + linkIndex.${name};
+  link = name: pair.linkPortBase + linkIndex.${name};
 
   # Every port as "<proto>/<port>" with its owner: TCP and UDP ports are separate, so a UDP
   # link may share a number with a TCP console.

@@ -50,9 +50,9 @@ pkgs.writeShellApplication {
     # GRO + RPS: loopback skips GRO, so repeat the echo between two network namespaces over
     # a veth pair with GRO on (veth then receives through NAPI). veth only hands a packet to
     # GRO if the sending device has TSO off (veth_skb_is_eligible_for_gro), so turn it off.
-    # With the RPS socket flow
-    # table allocated, homa_gro_complete -> homa_set_softirq_cpu writes table entries; on
-    # 7.1+ that is the rps_tag_ptr code. A kprobe counts the calls to prove it ran.
+    # With the RPS socket flow table allocated, homa_gro_complete -> homa_set_softirq_cpu
+    # writes table entries; on 7.1+ that is the rps_tag_ptr code. A kprobe counts the calls
+    # to prove it ran.
     echo 32768 > /proc/sys/net/core/rps_sock_flow_entries || fail GRO_SYSCTL
     ip netns add homa-srv
     ip netns add homa-cli

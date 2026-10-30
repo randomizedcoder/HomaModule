@@ -36,8 +36,10 @@ pkgs.writeShellApplication {
     clog="$logdir/node1${label}.log"
     port=${toString port}
     echo "console logs: $slog $clog"
+    # Is anything bound to the link port yet (node0's qemu)?
+    link_open() { ss ${ssFlags} "sport = :$port" | grep -q .; }
 
-    if ss ${ssFlags} "sport = :$port" | grep -q .; then
+    if link_open; then
       echo "port $port is already in use (another pair test running?)"
       echo "VERDICT: FAIL"
       exit 1
@@ -48,11 +50,11 @@ pkgs.writeShellApplication {
     spid=$!
 
     for _ in $(seq 60); do
-      ss ${ssFlags} "sport = :$port" | grep -q . && break
+      link_open && break
       kill -0 "$spid" 2>/dev/null || break
       sleep 0.5
     done
-    if ! ss ${ssFlags} "sport = :$port" | grep -q .; then
+    if ! link_open; then
       echo "node0 never listened on 127.0.0.1:$port"
       tail -n 30 "$slog"
       kill "$spid" 2>/dev/null || true

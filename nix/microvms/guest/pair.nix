@@ -1,7 +1,7 @@
 # nix/microvms/guest/pair.nix
 #
 # In-guest scripts for the two-VM pair test (PLAN-pairs.md). Two guests share a private L2
-# link (eth1, a QEMU socket netdev). Each runs one of these as a systemd oneshot, prints
+# link (eth1, a QEMU "dgram" netdev). Each runs one of these as a systemd oneshot, prints
 # phase markers on the serial console, then powers off. The host (pair-test.nix) greps both
 # consoles.
 #
@@ -51,15 +51,20 @@ let
     echo "''${PFX}_START host=$(cat /proc/sys/kernel/hostname) kernel=$(uname -r)"
   '';
 
-  # One cp_node client run: prints the last stats line, fails unless RPCs completed.
-  #   $1 = protocol (homa|tcp), remaining args are passed to cp_node
+  # The cp_node client command line, for one load run against node0. Homa uses its own
+  # server ports.
+  cpClient = { proto, workload ? pair.workload, gbps ? pair.gbps }: ''
+    timeout ${toString pair.loadSeconds} cp_node client --protocol ${proto} \
+      --workload ${workload} --gbps ${gbps} --first-server 0 --server-nodes 1 --id 1 \
+      ${lib.optionalString (proto == "homa") "--first-port ${toString pair.cpNodeHomaPort}"} \
+      2>&1 || true'';
+
+  # The result of one cp_node client run: prints the last stats line, fails unless RPCs
+  # completed.
+  #   $1 = protocol (homa|tcp), $2 = cp_node's output
   cpNode = ''
-    cp_node_run() {
-      local proto=$1 out line kops
-      shift
-      out=$(timeout ${toString pair.loadSeconds} cp_node client --protocol "$proto" \
-        --workload ${pair.workload} --gbps ${pair.gbps} --first-server 0 --server-nodes 1 \
-        --id 1 "$@" 2>&1 || true)
+    cp_node_check() {
+      local proto=$1 out=$2 line kops
       line=$(echo "$out" | grep ' clients: ' | tail -n 1)
       if [ -z "$line" ]; then
         echo "$out" | tail -n 20
@@ -73,18 +78,20 @@ let
   # Client phases, normal mode: echo, then cp_node over Homa and over TCP.
   normalPhases = ''
     # Echo 100 B .. 1 MB: multi-packet messages and grants over virtio-net.
-    before=$(grep -E '^(packets_sent_DATA|packets_rcvd_GRANT) ' /proc/net/homa_metrics \
-      | awk '{ s += $2 } END { print s + 0 }')
+    data_grant() {
+      grep -E '^(packets_sent_DATA|packets_rcvd_GRANT) ' /proc/net/homa_metrics \
+        | awk '{ s += $2 } END { print s + 0 }'
+    }
+    before=$(data_grant)
     responses=$(timeout 30 demo_client1 "$peer" 4000 | grep -c '^Received response' || true)
-    after=$(grep -E '^(packets_sent_DATA|packets_rcvd_GRANT) ' /proc/net/homa_metrics \
-      | awk '{ s += $2 } END { print s + 0 }')
+    after=$(data_grant)
     echo "HOMA_PAIR_ECHO responses=$responses (want ${toString echoRpcs}) data+grant packets=$((after - before))"
     [ "$responses" = ${toString echoRpcs} ] || fail ECHO
     ok ECHO
 
-    cp_node_run homa --first-port ${toString pair.cpNodeHomaPort} || fail CPNODE_HOMA
+    cp_node_check homa "$(${cpClient { proto = "homa"; }})" || fail CPNODE_HOMA
     ok CPNODE_HOMA
-    cp_node_run tcp || fail CPNODE_TCP
+    cp_node_check tcp "$(${cpClient { proto = "tcp"; }})" || fail CPNODE_TCP
     ok CPNODE_TCP
   '';
 
@@ -96,10 +103,7 @@ let
     both "sysctl -q -w $defaults ${setFor e}"
     c0=$(${stats} | snap)
     s0=$(on_peer ${stats} | snap)
-    out=$(timeout ${toString pair.loadSeconds} cp_node client --protocol ${e.proto} \
-      --workload ${e.workload} --gbps ${e.gbps} --first-server 0 --server-nodes 1 --id 1 \
-      ${lib.optionalString (e.proto == "homa") "--first-port ${toString pair.cpNodeHomaPort}"} \
-      2>&1 || true)
+    out=$(${cpClient { inherit (e) proto workload gbps; }})
     c1=$(${stats} | snap)
     s1=$(on_peer ${stats} | snap)
     line=$(echo "$out" | grep ' clients: ' | tail -n 1 | sed -E 's/^.*clients: //')
@@ -154,7 +158,7 @@ in
       done
       ok SERVERS
 
-      ${pkgs.lib.optionalString isExp ''
+      ${lib.optionalString isExp ''
         # Sweep mode: a shell on the private link so the client can set sysctls and read
         # metrics on this node.
         socat TCP-LISTEN:${toString pair.ctlPort},fork,reuseaddr SYSTEM:${pkgs.bash}/bin/bash &

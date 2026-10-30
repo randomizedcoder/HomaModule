@@ -14,8 +14,8 @@
 #                 variants on the unit-test mock layer (gate: all build + seeds run clean),
 #                 with bin/run-mock-fuzzers [seconds] [outdir]
 #
-# Every one of them runs harnesses through the same script, tools/run-fuzzers.sh, which
-# also sorts the crashes by sanitizer signature.
+# fuzz, fuzz-run, fuzz-deep and fuzz-mock's runner all run harnesses through one script,
+# tools/run-fuzzers.sh, which also sorts the crashes by sanitizer signature.
 
 { pkgs
 , lib
@@ -52,9 +52,8 @@ let
   compileHarness = { name, out ? "out/bin/${name}", flags ? "" }:
     "clang++ ${sanFlags} ${flags} -I nix/fuzz/harness nix/fuzz/harness/${name}.cc -o ${out}";
 
-  # A derivation over the fuzz sources, built with clang and no hardening flags (they clash
-  # with the sanitizers).
-  # A fuzz derivation: clang, then args' own nativeBuildInputs.
+  # A derivation over the fuzz sources, built with clang (then args' own
+  # nativeBuildInputs) and no hardening flags (they clash with the sanitizers).
   mkFuzzDrv = args: pkgs.stdenv.mkDerivation ({
     version = "0";
     inherit src;
