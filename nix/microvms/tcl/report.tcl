@@ -14,7 +14,7 @@ namespace eval ::homa::lc {
     namespace export report
 }
 namespace eval ::homa::lc::report {
-    namespace export verdict combine phaseLine tableRow deltaLine matrixRow
+    namespace export verdict combine phaseLine tableRow deltaLine trafficDetail matrixRow
     namespace ensemble create
     # Find parse (for field).
     namespace path ::homa::lc
@@ -86,6 +86,66 @@ proc ::homa::lc::report::tableRow {phase name verdict ms detail} {
 
 proc ::homa::lc::report::deltaLine {counters} {
     return [join [lmap {key value} $counters {string cat $key = $value}]]
+}
+
+# ---- Traffic runs ------------------------------------------------------------------
+
+# homa::lc::report::trafficDetail --
+#
+#	Judges and describes one pair traffic run (echo, cp_node over Homa and
+#	TCP, counter deltas, netem drops).
+#
+# Arguments:
+#	measured	a dictionary: echoes (responses that arrived), homa and
+#			tcp (cp_node's last stats lines), deltas (node name ->
+#			counter deltas) and checks (node name -> parse
+#			netemCheck's result; empty without netem).
+#	want		how many echo RPCs were sent (constants.echoRpcs).
+#	must		a counter that must have gone up, summed over the nodes,
+#			or "".
+#
+# Results:
+#	A dictionary: failed (what failed, from parse trafficFailures, then
+#	drops-<node> and no-<counter>) and detail (the phase's detail).
+
+proc ::homa::lc::report::trafficDetail {measured want must} {
+    lassign [lmap key {echoes homa tcp deltas checks} {dict get $measured $key}] \
+        echoes homa tcp deltas checks
+    set failures [parse trafficFailures $want $echoes $homa $tcp]
+    set text [format "echo %s/%s; Homa %s Kops P50 %s P99 %s us; TCP %s Kops P99 %s us" \
+        $echoes $want [parse field $homa clients:] [parse field $homa P50] \
+        [parse field $homa P99] [parse field $tcp clients:] [parse field $tcp P99]]
+    if {[dict size $checks]} {
+        append text "; netem drops [join [lmap {node check} $checks {dict get $check report}]]"
+        dict for {node check} $checks {
+            if {![dict get $check ok]} {
+                lappend failures drops-$node
+            }
+        }
+    }
+    append text [format "; RESENDs %d, resent %d, rpc_timeouts %d, tcp_retrans %d" \
+        [sum $deltas packets_sent_RESEND] [sum $deltas resent_packets] \
+        [sum $deltas rpc_timeouts] [sum $deltas tcp_retrans]]
+    if {$must ne ""} {
+        set count [sum $deltas $must]
+        append text "; $must $count"
+        if {$count <= 0} {
+            lappend failures no-$must
+        }
+    }
+    if {[llength $failures]} {
+        append text "; failed: [join $failures]"
+    }
+    return [dict create failed $failures detail $text]
+}
+
+# homa::lc::report::sum --
+#
+#	Returns counter key summed over every node's deltas (a dictionary of
+#	node name -> counters); 0 if there are none.
+
+proc ::homa::lc::report::sum {deltas key} {
+    return [tcl::mathop::+ {*}[lmap {node counters} $deltas {parse get $counters $key}]]
 }
 
 # ---- homa-vm-matrix --------------------------------------------------------------------

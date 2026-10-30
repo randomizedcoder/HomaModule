@@ -29,6 +29,8 @@ set fixed {
 # "Class method", procedures by their name in homa::lc.
 set scripts {
     {Table phase} {x x c}
+    {Node phase} {x x c}
+    waitFor {x x e}
     withEnv {x x c}
 }
 

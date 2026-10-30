@@ -30,18 +30,19 @@ proc script {path body} {
     file attributes $path -permissions 0755
 }
 
-# bootNode --
+# newGuest --
 #
-#	Runs every Node phase, as homa-lifecycle does, on a fake guest.
+#	Makes a Node for a fake guest, in a new work directory.
 #
 # Arguments:
 #	mode	fakeqemu.tcl's mode, or missing for a runner that does not
 #		exist.
 #
 # Results:
-#	The phases' ids and verdicts, in order: {1 PASS 2 PASS ...}.
+#	{table node}: a new homa::lc::Table and the Node, which records its
+#	phases there. dropGuest destroys them.
 
-proc bootNode {mode} {
+proc newGuest {mode} {
     set root [tcltest::makeDirectory work]
     set bin [file join $root runner bin]
     file mkdir $bin
@@ -55,11 +56,35 @@ proc bootNode {mode} {
 echo '[    0.100000] homa: loaded'
 [ "$FAKE_MODE" = oops ] && echo '[    1.000000] WARNING: CPU: 0 PID: 1 at homa_fake'
 exit 0}
-    set config [dict create dir [file join $root vm] runner [file join $root runner] \
-        serial 1 virtio $port \
-        timeouts {start 2 serial 2 virtio 3 command 3 exit 3}]
+    set vm [dict create runner [file join $root runner] serial 1 virtio $port]
     set phaseTable [homa::lc::Table new]
-    set guest [homa::lc::Node new $phaseTable $config ""]
+    return [list $phaseTable [homa::lc::Node new $phaseTable [file join $root guest] $vm \
+        {start 2 serial 2 virtio 3 command 3 exit 3}]]
+}
+
+# dropGuest --
+#
+#	Destroys what newGuest made: the Node (killing its QEMU), the Table and
+#	the work directory.
+
+proc dropGuest {phaseTable guest} {
+    $guest destroy
+    $phaseTable destroy
+    tcltest::removeDirectory work
+}
+
+# bootNode --
+#
+#	Runs every Node phase, as homa-lifecycle does, on a fake guest.
+#
+# Arguments:
+#	mode	as for newGuest.
+#
+# Results:
+#	The phases' ids and verdicts, in order: {1 PASS 2 PASS ...}.
+
+proc bootNode {mode} {
+    lassign [newGuest $mode] phaseTable guest
     try {
         lassign [quietly {
             $guest start 1
@@ -71,12 +96,43 @@ exit 0}
             $guest serialLog 8
         }] - printed
     } finally {
-        $guest destroy
-        $phaseTable destroy
-        tcltest::removeDirectory work
+        dropGuest $phaseTable $guest
     }
     return [concat {*}[lmap {- id result} \
         [regexp -all -inline -line {^  phase (\S+) \S+: (\w+)} $printed] {list $id $result}]]
+}
+
+# nodePhase --
+#
+#	Boots a fake guest, then runs script as Node phase 3 "probe".
+#
+# Arguments:
+#	mode		as for newGuest.
+#	closeFirst	1 to end the guest's shell (and so close hvc0) first.
+#	script		the phase script; it may set ran.
+#
+# Results:
+#	{rc verdict detail ran}: what Node phase returned, the phase's verdict
+#	and detail as printed, and 1 if script ran.
+
+proc nodePhase {mode closeFirst script} {
+    lassign [newGuest $mode] phaseTable guest
+    set ran 0
+    try {
+        lassign [quietly {
+            $guest start 1
+            $guest serial 2
+            $guest virtio 2b
+            if {$closeFirst} {
+                $guest run exit.log 3 exit
+            }
+            set rc [$guest phase 3 probe $script]
+        }] - printed
+    } finally {
+        dropGuest $phaseTable $guest
+    }
+    regexp -line {^  phase 3 probe: (\w+) \(\d+ ms\)(?:: (.*))?$} $printed -> verdict detail
+    return [list $rc $verdict $detail $ran]
 }
 
 testTable nodePhases {
@@ -92,6 +148,25 @@ testTable nodePhases {
         {1 FAIL 2 FAIL 2b FAIL 5 SKIP 6 SKIP 7 FAIL 8 PASS}}
 } {
     bootNode $input
+}
+
+# The input is {mode closeFirst script}; the result {rc verdict detail ran}.
+testTable nodePhase {
+    {"with a shell, the script runs in the caller" positive
+        {ok 0 {set ran 1; list 0 fine}} ok {0 PASS fine 1}}
+    {"its failure is the phase's" positive
+        {ok 0 {set ran 1; list 2 bad}} ok {2 FAIL bad 1}}
+    {"no shell on hvc0: SKIP, and the script never runs" negative
+        {silent 0 {set ran 1; list 0 fine}} ok {skip SKIP {no shell on hvc0} 0}}
+    {"the shell has exited: SKIP" corner
+        {ok 1 {set ran 1; list 0 fine}} ok {skip SKIP {no shell on hvc0} 0}}
+    {"a script that returns gives its rc" boundary
+        {ok 0 {set ran 1; return [list 0 early]}} ok {0 PASS early 1}}
+    {"a command run in the script reaches the guest" positive
+        {ok 0 {set ran 1; list [dict get [$guest run p.log 3 {(exit 3)}] rc] {}}} ok
+        {3 FAIL {} 1}}
+} {
+    nodePhase {*}$input
 }
 
 tcltest::cleanupTests
