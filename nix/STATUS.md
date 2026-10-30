@@ -34,7 +34,8 @@ Related docs:
 | Two VMs | `homa-pair-test-<server>-<client>` | ✅ all four 6.12/7.3 pairings: ping, echo 100 B–1 MB, cp_node w4 over Homa and over TCP, clean dmesg on both. 8 VMs in parallel finish in 50 s |
 | Latency sweep | `homa-pair-exp`, `homa-pair-exp-socket` | ✅ F2 explained: QEMU's TCP `socket` link stalls packets; over the UDP `dgram` link (now the default) Homa's P50 matches TCP's |
 | Lifecycle | `homa-lifecycle-{6_12,7_3}` | ❌ on `main`: phase 3 (smoke) crashes in `homa_route_free` (F8), and phases 7–8 report it. ✅ all 9 phases with the fix, about 22 s |
-| VM matrix | `homa-vm-matrix` | ❌ on `main` (F8). ✅ 8/8 with the fix (fork #22): smoke and lifecycle per kernel, plus four pairs, in 51 s |
+| Pair lifecycle | `homa-pair-lifecycle-{6_12,7_3}` | ✅ with the F8 fix: 37 timed phases, including five `tc netem` phases (delay, 0.1–5 % loss). Echo, cp_node Homa and TCP complete under every one, and Homa recovers by RESEND. Delay alone triggers many resends (F10). On `main` every traffic phase passes, then both nodes oops at rmmod (F8) |
+| VM matrix | `homa-vm-matrix` | ❌ on `main` (F8). ✅ 10/10 with the fix (fork #22): smoke, lifecycle and pair lifecycle per kernel, plus four pairs, in 155 s |
 | KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
@@ -83,6 +84,48 @@ Results on 7.3 with the F8 fix:
 On `main`, phase 3 crashes. Phases 4–6 are then SKIPped (there is no shell), phase 7 reports
 "qemu exited before poweroff", and phase 8 shows the oops and its `RIP:` line.
 
+### Pair lifecycle with netem (`nix run .#homa-pair-lifecycle`)
+
+The pair (node0 server, node1 client) driven over both guests' hvc0 consoles, with the same
+timed phases as the lifecycle test, plus traffic phases. Each traffic phase runs echo
+(`demo_client1`, six RPCs from 100 B to 1 MB), then cp_node w4 over Homa and over TCP for 6 s,
+from node1 to node0. It records `homa-node-stats` deltas on both nodes, in
+`traffic/<name>/deltas`.
+
+The netem phases put `tc netem` on eth1 of both nodes, so both directions are impaired. Every
+netem qdisc has `limit 100000` (packets), enforced by an `assert` in `pair-lifecycle.nix`, so
+the queue never overflows and the only drops are the configured random loss, not tail drops.
+A phase fails unless:
+
+- echo returns 6/6 and both cp_node runs complete RPCs;
+- each node's netem drop rate matches the configured loss (exactly 0 drops at 0 %); and
+- with loss, Homa sent RESENDs.
+
+Results on 7.3 with the F8 fix (rates and RTTs from cp_node; drops and resends summed over
+both nodes):
+
+| Phase | netem on eth1 (both nodes) | Homa Kops/s, P50 / P99 (µs) | TCP Kops/s, P99 (µs) | netem drops | Homa RESENDs, resent packets | TCP retrans |
+|---|---|---|---|---|---|---|
+| 7 baseline | none | 0.43, 176 / 27402 | 0.44, 21271 | — | 0, 0 | 0 |
+| 8.1 | `delay 1ms` | 0.23, 2217 / 30993 | 0.25, 26340 | 0 % | 225, 15870 | 0 |
+| 8.2 | `loss 0.1%` | 0.35, 189 / 34547 | 0.35, 26240 | 0.06–0.07 % | 303, 219 | 244 |
+| 8.3 | `loss 1%` | 0.30, 176 / 37735 | 0.12, 204557 | 0.76 % | 2080, 1776 | 1199 |
+| 8.4 | `delay 1ms loss 1%` | 0.14, 2223 / 48779 | 0.10, 209001 | 0.74–0.78 % | 1832, 9940 | 508 |
+| 8.5 | `loss 5%` | 0.18, 185 / 46154 | 0.01, 553225 | 4.8 % | 6141, 5648 | 463 |
+| 9 recovered | removed | 0.45, 186 / 32381 | 0.39, 29206 | — | 0, 0 | 0 |
+
+- **Homa rides out loss better than TCP here.** At 5 % loss, Homa keeps 40 % of its baseline
+  rate with P50 unchanged; TCP drops to 2 % with a P99 above half a second. There are no
+  `rpc_timeouts` in any phase. 6.12 gives the same picture.
+- **netem's measured loss is a little under the configured rate** (0.76 % for 1 %). tc counts
+  sent packets per GSO segment but drops per skb, so a dropped GSO skb hides several
+  segments. Tail drops would push the measured rate up, which the check bounds at twice the
+  configured loss plus 0.5 points.
+- **Delay alone makes Homa resend (F10).**
+
+Times: boot to both shells about 18 s; each traffic phase about 13.6 s; the whole run about
+2.5 min.
+
 ### Build matrix (`nix build .#homa-build-matrix`)
 
 | Kernel | Source | Result |
@@ -117,7 +160,8 @@ On `main`, phase 3 crashes. Phases 4–6 are then SKIPped (there is no shell), p
 | `homa-microvm-test` (7.3.0), `homa-microvm-test-6_12` | ✅ PASS |
 | `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
 | `homa-pair-test`, `homa-pair-test-<server>-<client>` | ✅ PASS for all four 6.12/7.3 pairings |
-| `homa-lifecycle`, `homa-lifecycle-<series>` | ✅ PASS with the F8 fix (see below) |
+| `homa-lifecycle`, `homa-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
+| `homa-pair-lifecycle`, `homa-pair-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
 
 ---
 
@@ -196,8 +240,8 @@ nothing, and its P99 is about 42 ms.
 `accept_bits` and `drop_bits` sysctls, to exercise retry code. Its only call site is commented
 out (`homa_offload.c:259`), so setting the sysctls has no effect.
 
-- **Follow-up:** use `tc netem` for loss tests (PLAN-pairs phase 4). Ask John whether the call
-  should come back (it is a development knob) or the sysctls should go.
+- **Follow-up:** loss tests now use `tc netem` (`homa-pair-lifecycle`). Ask John whether the
+  call should come back (it is a development knob) or the sysctls should go.
 
 ### F4: Upstream bugs found and fixed
 
@@ -245,8 +289,8 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 
 - **KASAN/KMEMLEAK VM:** never run. It needs a sanitizer kernel build, about 30 min, cached
   afterwards.
-- **Not exercised over a real link yet:** packet loss (netem), the Homa qdisc and pacer,
-  IPv6 between VMs, and more than two nodes.
+- **Not exercised over a real link yet:** the Homa qdisc and pacer, IPv6 between VMs, and more
+  than two nodes. (Loss and delay are now covered by `homa-pair-lifecycle`.)
 - **7.0–7.2:** compile-checked only; there is no bootable kernel for them in the flake yet.
 
 ### F8: Use-after-free in `homa_route_free` on netns exit and rmmod (fix: fork #22)
@@ -303,6 +347,23 @@ and the 7.3 trees are prepared from source with each arch's nixpkgs kernel confi
   `__builtin_ia32_rdtsc` on x86 with `clock_gettime(CLOCK_MONOTONIC_RAW)` elsewhere, and
   `REG_RIP` behind `#ifdef __x86_64__`.
 
+### F10: 1 ms of delay with no loss makes Homa resend about a quarter of its data
+
+In `homa-pair-lifecycle` phase 8.1 (`netem delay 1ms` on both nodes, so a 2 ms RTT, no loss),
+node1 sent 225 RESENDs in 6 s, and node0 resent 15870 packets: 23 % of its 68855 DATA packets,
+about 70 packets per RESEND. Most of them arrived after their RPC had finished: node1 counted
+12202 `unknown_rpcs` and 3668 `resent_discards`. 6.12 shows the same (254 RESENDs, 16827
+packets). With 1 % loss and no delay, resends match the drops (2080 RESENDs, 1776 packets).
+
+- A receiver requests a resend after `resend_ticks` (5) ticks of 1 ms (`homa_plumbing.c:2180`)
+  with nothing heard on an RPC that still expects granted data (`homa_timer.c:155`). A 2 ms
+  RTT is well inside 5 ms, so the RTT alone shouldn't trigger it; a grant waits 1 ms each way
+  as well.
+- **Follow-up (#16):** sweep `resend_ticks` with netem delay (homa-pair-exp style), and look at
+  which RPCs request the resends and for what ranges. Then decide whether this is worth asking
+  John about. The 2 ms RTT is long for a datacenter, but cross-rack or virtualized paths can
+  see it.
+
 ---
 
 ## Follow-up actions
@@ -312,7 +373,8 @@ and the 7.3 trees are prepared from source with each arch's nixpkgs kernel confi
 | 1 | ~~F2 experiments~~ ✅ done: QEMU `socket` backend stall, pair tests moved to `dgram` | — | — | — |
 | 2 | ~~PLAN-pairs phase 3: `homa-vm-matrix`~~ ✅ done; its first run found F8 | — | — | — |
 | 13 | Send F8 upstream once the user has reviewed fork #22 | Use-after-free on every netns exit and rmmod | — | us → upstream |
-| 3 | PLAN-pairs phase 4: netem loss and delay | Test RESEND and timeout paths across a real link (F3) | small | us |
+| 3 | ~~PLAN-pairs phase 4: netem loss and delay~~ ✅ `homa-pair-lifecycle`; found F10 | — | — | — |
+| 16 | F10: why 1 ms of delay triggers resends (sweep `resend_ticks` under netem delay) | A quarter of DATA resent with no loss | small | us, then maybe John |
 | 4 | PLAN-pairs phase 5: Homa qdisc on virtio | Should reproduce round-4 candidate 5 in a real kernel; exercises the pacer | medium | us |
 | 5 | Run `homa-microvm-test-debug`, then a KASAN pair test | Memory-safety coverage of the real data path | medium (kernel build) | us |
 | 6 | IPv6 pair test (`--ipv6` for cp_node, v6 addresses on eth1) | #137/#138 were IPv6 bugs; nothing tests v6 between nodes | small | us |
@@ -335,4 +397,4 @@ and the 7.3 trees are prepared from source with each arch's nixpkgs kernel confi
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
 | 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
-| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0) |
+| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0). `homa-pair-lifecycle`: the pair over both consoles, with `tc netem` loss and delay phases (limit 100000); found F10 |
