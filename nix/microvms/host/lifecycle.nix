@@ -2,7 +2,7 @@
 #
 # Lifecycle test (pcp/xdp2 pattern): the host boots a guest with two consoles (mkVm.nix
 # consolePorts) and drives it phase by phase, with a timeout and a time for each. The
-# driver is tcl/bin/lifecycle.tcl (Tcl/Expect, see tcl/README.md); this file only gives it
+# driver is ../tcl/bin/lifecycle.tcl (Tcl/Expect, see ../tcl/README.md); this file only gives it
 # its configuration:
 #
 #   1  start      qemu running, console ports listening

@@ -9,7 +9,7 @@
 # Each test keeps its own console logs and output under $HOMA_VM_LOGDIR/<test>/. The tests
 # share nothing on the host (each pair has its own link port), so they can all run at once;
 # HOMA_VM_JOBS caps how many run together (default: all). Exits non-zero if any test fails.
-# The driver is tcl/bin/vm-matrix.tcl (see tcl/README.md); this file gives it the tests.
+# The driver is ../tcl/bin/vm-matrix.tcl (see ../tcl/README.md); this file gives it the tests.
 
 { lib
 , tclApps   # tcl.nix

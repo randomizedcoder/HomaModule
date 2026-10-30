@@ -35,56 +35,67 @@ This design does not invent conventions; it adapts three existing, proven Nix se
 
 ## 3. Module map & composition
 
-The flake follows the xdp2 style: **flake-utils**, a plain `outputs` function (no
-flake-parts), and explicit `import ./nix/<mod>.nix { ... }` wiring — no auto-discovery.
-Modules never read `self`/inputs; they receive `pkgs`, `lib`, and already-built
-derivations as arguments, which keeps them independently testable.
+Three layers, each with one job:
+
+1. **`flake.nix` + `nix/parts/`** (flake-parts). `flake.nix` names the inputs (nixpkgs,
+   flake-parts, microvm.nix) and the systems, and imports one part per area. A part maps
+   scope values to flake outputs and holds no build logic. flake-parts merges the parts'
+   `perSystem` results, so `packages` can come from several files, and a name defined twice
+   is an error rather than a silent `//` override.
+2. **`nix/scope.nix`** (`lib.makeScope`). Every Homa value lives in one package scope.
+   Each file is called with `callPackage`, so it takes only the arguments it names, from
+   the scope first, then from nixpkgs. Nothing threads `pkgs lib kernelConfig src` through
+   by hand, and `homa.overrideScope` swaps a piece (another kernel config, say) and rebuilds
+   whatever depends on it. Files never read flake inputs: they stay callable on their own.
+3. **The area files** (`kernel/`, `build/`, `analysis/`, `fuzz/`, `microvms/`, `dev/`).
+   Each returns `{ packages; checks?; ... }`. What several areas share lives in
+   `nix/lib` (`homaLib`): the source subsets, `mkKbuild`, `perKernel`.
 
 ```
-flake.nix                     # inputs (nixpkgs unstable, flake-utils, microvm), wiring, usage header
+flake.nix                 # inputs, systems, imports nix/parts/*; usage header
 nix/
-  README.md                   # quick-start + command cheat-sheet
-  STATUS.md                   # status per kernel/target, findings, follow-ups
-  docs/
-    DESIGN.md                 # this file
-  kernel/config.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
-  kernel/src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
-  patches/                    # upstream-pending fixes applied to the Homa source (homaLib.src)
-  packages.nix                # nativeBuildInputs / buildInputs / devTools / pythonEnv / allPackages
-  env-vars.nix                # shell env fragment (CC/CXX, KDIR, ARCH, PYTHON)
-  module.nix                  # homa.ko derivation, enableDebug switch  -> homa-module[-debug|-<series>],
-                              #   homa-build-matrix
-  userspace.nix               # util/ + test/ derivations              -> homa-utils[-debug], homa-tests
-  dev/shell.nix                # mkShell composing the above
-  shell-functions/*.nix       # bash helper fragments (homa-build/test/clean/checkpatch/lint)
-  oci.nix                     # userspace OCI image                    -> homa-image[-debug]
+  README.md  STATUS.md    # quick start and commands; status, findings, follow-ups
+  docs/DESIGN.md          # this file
+  parts/                  # scope.nix (builds the scope, passes it as `homa`), build, analysis,
+                          #   fuzz, vms, dev
+  scope.nix               # the package scope
+  lib/                    # homaLib: src.{module,util,test,fuzz,all} (lib.fileset + patches/),
+                          #   version, meta, mkKbuild, perKernel
+  patches/                # upstream-pending Homa fixes (a list; currently empty)
+  kernel/                 # config.nix (default kernel, KDIR, matrix, vmSeries), src.nix
+                          #   (trees from tarballs or a local checkout), unit-kdir/
+  build/                  # module.nix, userspace.nix, cross.nix, oci.nix
+  dev/                    # shell.nix, packages.nix, env-vars.nix, shell-functions/
+  analysis/               # default.nix (mkAnalysisTool, tiers), one file per tool,
+                          #   kbuild-check.nix (sparse, smatch)
+  fuzz/                   # default.nix, tools/ (run-fuzzers.sh and the larger builds),
+                          #   harness/, dict/, corpus-seeds/
   microvms/
-    constants.nix             # hostname, resources, timeouts
-    mkVm.nix                  # parameterised guest (kernelPackages, 9p store, HOMA_KO, autoTest)
-    smoke.nix                 # in-guest smoke test (systemd oneshot, sentinels on the console)
-    smoke-test.nix                   # host runner: boot, capture console, grep sentinels -> verdict
-    default.nix               # assembly -> per-kernel microvm packages + test runners
-  analysis/
-    default.nix               # composition root: analysis-quick|standard|deep + summary.txt
-    compile-db.nix            # compile_commands.json via bear (for clang-tidy/cppcheck)
-    clang-tidy.nix cppcheck.nix clang-format.nix
-    sparse.nix smatch.nix     # kernel-aware (need the kernel tree)
-    python.nix shell.nix      # ruff/mypy ; shellcheck/shfmt (shebang-aware discovery)
-  fuzz/
-    default.nix               # composition root: fuzz / fuzz-run / fuzz-deep / fuzz-cov / fuzz-selftest
-    tools/fuzz{,-deep,-cov,-selftest}.nix
-    harness/                  # libFuzzer harness sources (see §7)
-    dict/homa_wire.dict       # wire-format dictionary
-    corpus-seeds/<type>/      # one valid packet per Homa packet type
-analysis-reports/
-  static-analysis-report.md
-  fuzzing-report.md
+    default.nix           # every VM target
+    constants.nix         # sizes, timeouts, addresses, netem phases, oopsRegex
+    ports.nix             # every host port from one table, asserted unique
+    guest/                # mkVm.nix, smoke.nix, pair.nix, metrics.nix, qdisc.nix
+    host/                 # smoke-test.nix, pair-test.nix (bash); lifecycle, pair-lifecycle,
+                          #   matrix (Tcl drivers, configured as JSON); tcl.nix
+    tcl/                  # the homa::lc Tcl/Expect package, its drivers and tcltest suite
+analysis-reports/         # the reports from the analysis and fuzzing rounds
 ```
 
-**Composition flow:** config modules (`kernel`, `packages`, `env-vars`) return
-attrsets/shell-fragments → consumed by derivation modules (`module`, `userspace`,
-`analysis/*`, `fuzz/*`) and the `devshell` → assembled into flake `outputs`. The microVM,
-analysis, and fuzz subtrees each expose a `default.nix` aggregator.
+Choices behind this layout:
+
+- **Source subsets, not `self`.** A derivation depends on every byte of its source. Each
+  build gets only what it reads (`homaLib.src.*`, via `lib.fileset`), so editing a README or
+  a `.nix` file outside a build's subset leaves it cached. The version string leaves out the
+  git revision for the same reason.
+- **One helper per repeated shape.** kbuild derivations (`mkKbuild`), analysis tools
+  (`mkAnalysisTool`), fuzz runs (one `run-fuzzers.sh`), and per-kernel package sets
+  (`perKernel`) are each written once.
+- **Checked invariants at evaluation time.** `ports.nix` asserts that no two VM tests bind
+  the same host port; the `tcl-tests` check asserts that the host's oops regex is the
+  guests'.
+- **Tcl/Expect for console driving.** The lifecycle drivers talk to guest shells over TCP
+  consoles, which is Expect's job; see `nix/microvms/tcl/README.md`. Scripts that run in
+  the guests stay bash, shellchecked by `writeShellApplication`.
 
 ## 4. Debug vs non-debug model
 
