@@ -18,7 +18,7 @@ package require homa::lc::parse
 package require homa::lc::console
 
 namespace eval ::homa::lc {
-    namespace export Table Node Batch logdir pause slurp spit utf8
+    namespace export Table Node Batch logdir pause slurp spit utf8 withEnv
 
     # Set by pause's timer.
     variable paused 0
@@ -100,6 +100,34 @@ proc ::homa::lc::utf8 {chan} {
     }
 }
 
+# homa::lc::withEnv --
+#
+#	Runs script in the caller's scope with env(name) set to value, then
+#	puts env(name) back as it was, set or unset, even if script fails.
+#	Tcl 8.6's "open |" has no option for a child's environment, so it is
+#	set around the open.
+#
+# Results:
+#	The script's result.
+
+proc ::homa::lc::withEnv {name value script} {
+    global env
+    set had [info exists env($name)]
+    if {$had} {
+        set old $env($name)
+    }
+    set env($name) $value
+    try {
+        return [uplevel 1 $script]
+    } finally {
+        if {$had} {
+            set env($name) $old
+        } else {
+            unset -nocomplain env($name)
+        }
+    }
+}
+
 # homa::lc::Batch --
 #
 #	Runs test commands in parallel, at most limit at a time, each in its
@@ -122,6 +150,8 @@ oo::class create ::homa::lc::Batch {
     variable logdir limit waiting running results
 
     constructor {dir jobs} {
+        # Methods run in the object's namespace; find withEnv.
+        namespace path ::homa::lc
         if {![string is entier -strict $jobs] || $jobs < 1} {
             return -code error "bad job limit \"$jobs\""
         }
@@ -170,22 +200,19 @@ oo::class create ::homa::lc::Batch {
     #	directory each.
 
     method Start {name exe} {
-        global env
         set dir [file join $logdir $name]
         file mkdir $dir
         set out [open [file join $logdir $name.out] w]
         set here [pwd]
-        set env(HOMA_VM_LOGDIR) $dir
         cd $dir
         try {
-            set chan [open |[list $exe < /dev/null 2>@1] r]
+            set chan [withEnv HOMA_VM_LOGDIR $dir {open |[list $exe < /dev/null 2>@1] r}]
         } on error {message} {
             close $out
             dict set results $name [list "error: $message" 0]
             return
         } finally {
             cd $here
-            unset env(HOMA_VM_LOGDIR)
         }
         chan configure $chan -blocking 0 -translation binary
         chan configure $out -translation binary

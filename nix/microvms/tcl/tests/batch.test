@@ -100,4 +100,82 @@ testTable batchParallel {
     tcl::mathfunc::max {*}$rcs
 }
 
+# envState --
+#
+#	Returns env(name) as a list of one value, or an empty list if unset,
+#	so "unset" and "set to empty" differ.
+
+proc envState {name} {
+    global env
+    if {[info exists env($name)]} {
+        return [list $env($name)]
+    }
+    return {}
+}
+
+# setEnvState --
+#
+#	Sets env(name) from a state as envState returns it.
+
+proc setEnvState {name state} {
+    global env
+    if {[llength $state]} {
+        set env($name) [lindex $state 0]
+    } else {
+        unset -nocomplain env($name)
+    }
+}
+
+# The input is {prior value script}: prior as envState gives it. The result is
+# {code result after}: withEnv's catch code and result, and envState after.
+testTable withEnv {
+    {"the script sees the value" positive {{} v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v {}}}
+    {"a prior value is restored" positive {old v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v old}}
+    {"an error in the script still restores the value" negative {old v {error boom}} ok
+        {1 boom old}}
+    {"an error with no prior value still unsets it" negative {{} v {error boom}} ok
+        {1 boom {}}}
+    {"an empty value is set, not unset" boundary {{} {} {info exists ::env(HOMA_TEST_ENV)}} ok
+        {0 1 {}}}
+    {"a prior empty value is restored as empty" boundary {{{}} v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v {{}}}}
+    {"nested calls restore in order" corner
+        {old v {list [homa::lc::withEnv HOMA_TEST_ENV inner {set ::env(HOMA_TEST_ENV)}]\
+            $::env(HOMA_TEST_ENV)}} ok
+        {0 {inner v} old}}
+    {"the script runs in the caller's scope" corner {{} v {set here}} ok
+        {0 caller {}}}
+} {
+    lassign $input prior value script
+    setEnvState HOMA_TEST_ENV $prior
+    set here caller
+    set code [catch {homa::lc::withEnv HOMA_TEST_ENV $value $script} result]
+    set after [envState HOMA_TEST_ENV]
+    unset -nocomplain ::env(HOMA_TEST_ENV)
+    list $code $result $after
+}
+
+# The input is {prior script}: HOMA_VM_LOGDIR before the batch, as envState
+# gives it, and the test's script ("missing" for one that cannot start). The
+# result is HOMA_VM_LOGDIR after it, as envState gives it.
+testTable batchEnv {
+    {"a caller's value is restored" positive {/keep {exit 0}} ok /keep}
+    {"unset before, unset after" positive {{} {exit 0}} ok {}}
+    {"an empty value is restored as empty" boundary {{{}} {exit 0}} ok {{}}}
+    {"restored even when the test cannot start" negative {/keep missing} ok /keep}
+    {"a value with spaces and a newline" corner {{"a b\nc"} {exit 0}} ok "{a b\nc}"}
+} {
+    lassign $input prior script
+    set saved [envState HOMA_VM_LOGDIR]
+    setEnvState HOMA_VM_LOGDIR $prior
+    try {
+        runBatch 1 [list [list a $script]]
+        envState HOMA_VM_LOGDIR
+    } finally {
+        setEnvState HOMA_VM_LOGDIR $saved
+    }
+}
+
 tcltest::cleanupTests
