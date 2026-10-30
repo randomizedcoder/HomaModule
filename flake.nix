@@ -138,7 +138,8 @@
 
         checks =
           analysisPkgs.checks or { }
-          // fuzzPkgs.checks or { };
+          // fuzzPkgs.checks or { }
+          // microvmPkgs.checks;
 
         formatter = pkgs.nixpkgs-fmt;
       });

@@ -71,8 +71,9 @@ rec {
     '';
   };
 
-  # Bash functions: snap (homa-node-stats on stdin -> "name=value ...", summed over cores)
-  # and delta <snap> <snap> (the non-zero differences).
+  # Bash functions for the guest-side pair test (pair.nix): snap (homa-node-stats on stdin
+  # -> "name=value ...", summed over cores) and delta <snap> <snap> (the non-zero
+  # differences). The host-side lifecycle drivers do the same in Tcl (parse snap/delta).
   snapDelta = ''
     snap() {
       awk -v keys="${lib.concatStringsSep " " expMetrics}" '

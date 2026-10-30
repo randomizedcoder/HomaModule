@@ -39,6 +39,8 @@
 
 let
   constants = import ./constants.nix { inherit lib; };
+  tclApps = import ./tcl.nix { inherit pkgs lib; };
+  metrics = import ./metrics.nix { inherit pkgs lib; };
 
   mkGuest =
     { kernelPackages
@@ -69,7 +71,7 @@ let
       consolePorts = { serial = base; virtio = base + 1; };
     in
     import ./lifecycle.nix {
-      inherit pkgs lib constants label consolePorts;
+      inherit lib constants tclApps label consolePorts;
       runner = mkGuest { inherit kernelPackages consolePorts; };
     };
 
@@ -90,7 +92,7 @@ let
       };
     in
     import ./pair-lifecycle.nix {
-      inherit pkgs lib constants label ports;
+      inherit lib constants tclApps metrics label ports;
       serverRunner = node "server";
       clientRunner = node "client";
     };
@@ -155,7 +157,7 @@ let
   # homa-vm-matrix: every per-kernel smoke, lifecycle and pair lifecycle test and every
   # pair, in parallel.
   matrix = import ./matrix.nix {
-    inherit pkgs lib;
+    inherit lib tclApps;
     tests =
       lib.concatMap
         (s: map
@@ -221,4 +223,7 @@ in
     };
     homa-vm-matrix = matrix;
   } // perKernel // perPair;
+
+  # The Tcl drivers' tests and lint (tcl.nix).
+  checks.tcl-tests = tclApps.tests;
 }
