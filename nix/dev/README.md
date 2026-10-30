@@ -16,7 +16,7 @@ nix develop
 homa-build        # make against $KDIR
 homa-test         # the unit tests
 homa-checkpatch   # the kernel's checkpatch.pl
-homa-lint         # ruff and clang-format
+homa-lint         # the analysis-quick tier: ruff, shellcheck, clang-format
 ```
 
 `nix fmt` formats Nix files with `nixpkgs-fmt` ([`../parts/dev.nix`](../parts/dev.nix)).

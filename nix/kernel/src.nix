@@ -75,7 +75,9 @@ let
       dontInstall = true;
       dontFixup = true;
 
-      passthru = { inherit name makeFlags extraInputs; kdir = "build"; };
+      # module.nix's buildAgainstTree passes these on to make. (Not name: a passthru name
+      # would hide the derivation's own.)
+      passthru = { inherit makeFlags; };
     };
 
   fromTarball = name: { version, hash }: mkTree {
