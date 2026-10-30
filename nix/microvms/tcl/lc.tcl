@@ -275,8 +275,10 @@ oo::class create ::homa::lc::Table {
     # phase --
     #
     #	Times script, run in the caller's scope, and records its result: a
-    #	list {rc detail}. An error in the script, or a result without a
-    #	valid rc, fails the phase rather than the run.
+    #	list {rc detail}, either the script's value or what it returns.
+    #	Anything else fails the phase rather than the run: an error (its
+    #	stack goes to phase-errors.log), a break or continue, or a result
+    #	without a valid rc.
     #
     # Results:
     #	The phase's rc.
@@ -284,13 +286,35 @@ oo::class create ::homa::lc::Table {
     method phase {id name script} {
         set start [clock milliseconds]
         try {
-            lassign [uplevel 1 $script] rc detail
-            parse verdict $rc
-        } on error {message} {
-            lassign [list 1 "error: $message"] rc detail
+            uplevel 1 $script
+        } on ok {result} - on return {result} {
+            set outcome [my Outcome $result]
+        } on break {} {
+            set outcome {1 {error: break in phase script}}
+        } on continue {} {
+            set outcome {1 {error: continue in phase script}}
+        } on error {message options} {
+            spit phase-errors.log "phase $id $name: $message\n[dict get $options -errorinfo]" a
+            set outcome [list 1 "error: $message"]
         }
+        lassign $outcome rc detail
         my record $id $name $rc $start $detail
         return $rc
+    }
+
+    # Outcome --
+    #
+    #	Returns a phase script's result as {rc detail}, or {1 "error: ..."}
+    #	if it is not a list with a valid rc.
+
+    method Outcome {result} {
+        try {
+            lassign $result rc detail
+            parse verdict $rc
+            return [list $rc $detail]
+        } on error {message} {
+            return [list 1 "error: $message"]
+        }
     }
 
     # verdict --

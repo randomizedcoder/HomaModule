@@ -10,12 +10,13 @@ package require homa::lc
 
 # withFile --
 #
-#	Runs a script in the caller's scope, with f set to the path of a file
-#	in a fresh directory, which the script may write.
+#	Runs a script in the caller's scope, with varName set to the path of a
+#	file in a fresh directory, which the script may write.
 
-proc withFile {script} {
-    upvar 1 f f
-    set f [file join [tcltest::makeDirectory files] f]
+##nagelfar syntax withFile n c
+proc withFile {varName script} {
+    upvar 1 $varName path
+    set path [file join [tcltest::makeDirectory files] f]
     try {
         return [uplevel 1 $script]
     } finally {
@@ -56,7 +57,7 @@ testTable filesRoundTrip {
     {"empty text writes an empty file" boundary "" ok ""}
     {"a trailing newline is kept, then one more added" corner "a\n" ok "a\n\n"}
 } {
-    withFile {
+    withFile f {
         homa::lc::spit $f $input
         homa::lc::slurp $f
     }
@@ -69,7 +70,7 @@ testTable filesSpitBytes {
     {"ASCII is one byte a character" positive "ok" ok 6f6b0a}
     {"empty text writes no bytes" boundary "" ok ""}
 } {
-    withFile {
+    withFile f {
         homa::lc::spit $f $input
         bytes $f
     }
@@ -81,7 +82,7 @@ testTable filesSlurp {
     {"a file that does not exist yet reads as empty" boundary missing ok ""}
     {"an empty file reads as empty" boundary "" ok ""}
 } {
-    withFile {
+    withFile f {
         if {$input ne "missing"} {
             rawFile $f $input
         }
@@ -97,7 +98,7 @@ testTable filesSlurpBadBytes {
     {"a UTF-8 sequence cut short does not fail the read" corner 61e28662 ok 4}
     {"a file of nothing but bad bytes" corner ffff ok 2}
 } {
-    withFile {
+    withFile f {
         rawFile $f $input
         string length [homa::lc::slurp $f]
     }
@@ -109,7 +110,7 @@ testTable filesAppend {
     {"appending to a missing file creates it" boundary {a} ok "a\n"}
     {"appending empty text adds nothing" corner {a {} b} ok "a\nb\n"}
 } {
-    withFile {
+    withFile f {
         foreach text $input {
             homa::lc::spit $f $text a
         }
