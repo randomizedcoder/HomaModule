@@ -3,11 +3,11 @@
 #	homa::lc::Console runs shell commands over a guest's console: a TCP
 #	connection to QEMU's virtio console (hvc0), where the guest runs a root
 #	shell. Expect does the reading; this class adds the end-marker protocol
-#	from parse.tcl, so each command's exit status comes back with its output.
+#	(protocol.tcl), so each command's exit status comes back with its output.
 
 package require Tcl 8.6-
 package require Expect
-package require homa::lc::parse
+package require homa::lc::protocol
 
 namespace eval ::homa::lc {
     namespace export Console
@@ -46,7 +46,7 @@ oo::class create ::homa::lc::Console {
     #			(see run). Tests lower it to exercise long lines.
 
     constructor {chan {matchMax 65536}} {
-        # Methods run in the object's namespace; find parse.
+        # Methods run in the object's namespace; find protocol.
         namespace path ::homa::lc
         set lastId 0
         spawn -noecho -open $chan
@@ -101,7 +101,7 @@ oo::class create ::homa::lc::Console {
 
     method run {cmd timeout} {
         set id [incr lastId]
-        if {![my send [parse wrap $cmd $id]]} {
+        if {![my send [protocol wrap $cmd $id]]} {
             return [dict create rc 125 out {}]
         }
         set status 124
@@ -115,15 +115,14 @@ oo::class create ::homa::lc::Console {
         expect -i $spawnId -timeout $timeout -re {[^\n]*\n} {
             set line $partial[string range $expect_out(0,string) 0 end-1]
             set partial {}
-            set code [parse marker $id $line]
-            set text [parse stripMarker $line]
-            if {$text ne "" || [string trimright $line \r] eq $text} {
+            lassign [protocol line $id $line] keep text done rc
+            if {$keep} {
                 lappend lines $text
             }
-            if {$code eq ""} {
+            if {!$done} {
                 exp_continue -continue_timer
             }
-            set status $code
+            set status $rc
         } full_buffer {
             append partial $expect_out(buffer)
             exp_continue -continue_timer

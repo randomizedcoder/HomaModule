@@ -78,18 +78,24 @@ dict for {name spec} $fixed {
 }
 puts "##nagelfar implicitvarcmd {spawn *} spawn_id"
 
-# The parse ensemble, under its full name and as imported.
-set map [namespace ensemble configure ::homa::lc::parse -map]
-if {![llength $map]} {
-    foreach cmd [info commands ::homa::lc::parse::*] {
-        dict set map [namespace tail $cmd] $cmd
+# The ensembles: parse under its full name and as imported, protocol as
+# console.tcl finds it (namespace path).
+foreach {ensemble names} {
+    ::homa::lc::parse {homa::lc::parse parse}
+    ::homa::lc::protocol {homa::lc::protocol protocol}
+} {
+    set map [namespace ensemble configure $ensemble -map]
+    if {![llength $map]} {
+        foreach sub [namespace eval $ensemble {namespace export}] {
+            dict set map $sub ${ensemble}::$sub
+        }
     }
-}
-foreach ensemble {homa::lc::parse parse} {
-    syntax syntax $ensemble s x*
-    syntax subcmd $ensemble {*}[lsort [dict keys $map]]
-    foreach sub [lsort [dict keys $map]] {
-        syntax syntax "$ensemble $sub" {*}[tokens [procArgs [dict get $map $sub]]]
+    foreach name $names {
+        syntax syntax $name s x*
+        syntax subcmd $name {*}[lsort [dict keys $map]]
+        foreach sub [lsort [dict keys $map]] {
+            syntax syntax "$name $sub" {*}[tokens [procArgs [dict get $map $sub]]]
+        }
     }
 }
 
