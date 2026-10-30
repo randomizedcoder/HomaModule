@@ -104,24 +104,38 @@ let
       (buildModule { kernelPackages = kp; enableDebug = false; }))
     kernelConfig.matrix;
 
-  # Compile-only builds against kernels prepared from source (nix/kernel-src.nix).
-  buildAgainstTree = name: tree: pkgs.stdenv.mkDerivation {
+  # Compile-only builds against kernels prepared from source (nix/kernel-src.nix). A cross
+  # tree (cross.nix) brings its ARCH=/CROSS_COMPILE= flags and its cross gcc along.
+  #   strip: build the upstream-shaped source (make __STRIP__=1)
+  #   machine: if set, readelf must report this e_machine for homa.ko (e.g. "RISC-V")
+  buildAgainstTree = name: tree: { strip ? false, machine ? null }: pkgs.stdenv.mkDerivation {
     pname = "homa-module-${name}";
     inherit version src;
     nativeBuildInputs = [ pkgs.gnumake ] ++ tree.nativeBuildInputs;
     buildInputs = tree.buildInputs;
     hardeningDisable = [ "all" ];
     dontConfigure = true;
-    makeFlags = [ "KDIR=${tree}/build" "KBUILD_MODPOST_WARN=1" ];
+    makeFlags = [ "KDIR=${tree}/build" "KBUILD_MODPOST_WARN=1" ] ++ tree.makeFlags
+      ++ lib.optional strip "__STRIP__=1";
     env.MY_CFLAGS = "-O2";
+    # Keep the log, so homa-cross-matrix can count compiler warnings.
+    buildPhase = ''
+      runHook preBuild
+      make -j"$NIX_BUILD_CORES" $makeFlags 2>&1 | tee build.log
+      runHook postBuild
+    '';
     installPhase = ''
+      ${lib.optionalString (machine != null) ''
+        readelf -h homa.ko | grep -q 'Machine: *${machine}' \
+          || { readelf -h homa.ko; echo "homa.ko is not ${machine}"; exit 1; }
+      ''}
       mkdir -p "$out"
-      cp homa.ko "$out/"
+      cp homa.ko build.log "$out/"
     '';
     dontFixup = true;
   };
   srcPkgs = lib.mapAttrs'
-    (name: tree: lib.nameValuePair "homa-module-${name}" (buildAgainstTree name tree))
+    (name: tree: lib.nameValuePair "homa-module-${name}" (buildAgainstTree name tree { }))
     kernelSrc.trees;
 
   # Every kernel, one report. Each build runs in its own copy of the source; a failure is
@@ -163,7 +177,7 @@ let
   };
 in
 {
-  inherit buildModule homa-module homa-module-debug homa-build-matrix;
+  inherit buildModule buildAgainstTree homa-module homa-module-debug homa-build-matrix;
   packages = {
     inherit homa-module homa-module-debug homa-build-matrix;
   } // srcPkgs // matrixPkgs;

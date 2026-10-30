@@ -37,38 +37,47 @@ let
   # Large source directories that out-of-tree module builds never read.
   prune = [ "Documentation" "drivers" "sound" "samples" "fs" "LICENSES" ];
 
-  mkTree = { name, version, src }: pkgs.stdenv.mkDerivation {
-    pname = "linux-kdir-${name}";
-    inherit version src;
+  # mkTree is also used by cross.nix: configfile is that arch's nixpkgs kernel config, and
+  # makeFlags carries ARCH= and CROSS_COMPILE= (the cross gcc goes in extraInputs).
+  mkTree =
+    { name
+    , version
+    , src
+    , configfile ? configKernel.configfile
+    , makeFlags ? [ ]
+    , extraInputs ? [ ]
+    }: pkgs.stdenv.mkDerivation {
+      pname = "linux-kdir-${name}";
+      inherit version src;
 
-    nativeBuildInputs = with pkgs; [ bc bison flex perl python3 pkg-config ]
-      ++ configKernel.moduleBuildDependencies;
-    buildInputs = with pkgs; [ elfutils openssl zlib ];
-    hardeningDisable = [ "all" ];
-    dontConfigure = true;
+      nativeBuildInputs = with pkgs; [ bc bison flex perl python3 pkg-config ]
+        ++ configKernel.moduleBuildDependencies ++ extraInputs;
+      buildInputs = with pkgs; [ elfutils openssl zlib ];
+      hardeningDisable = [ "all" ];
+      dontConfigure = true;
 
-    # The O= build tree records the absolute source path, so the source must live in $out
-    # too. Build into $out directly.
-    buildPhase = ''
-      runHook preBuild
-      mkdir -p "$out"
-      cp -r . "$out/source"
-      chmod -R u+w "$out/source"
-      patchShebangs "$out/source/scripts" "$out/source/tools"
-      cd "$out/source"
-      mkdir -p "$out/build"
-      cp ${configKernel.configfile} "$out/build/.config"
-      make O="$out/build" olddefconfig
-      make O="$out/build" -j"$NIX_BUILD_CORES" modules_prepare
-      # Keep enough source for M= builds (headers, scripts, arch, Kbuild/Kconfig files).
-      rm -rf ${lib.concatMapStringsSep " " (d: "\"$out/source/${d}\"") prune}
-      runHook postBuild
-    '';
-    dontInstall = true;
-    dontFixup = true;
+      # The O= build tree records the absolute source path, so the source must live in $out
+      # too. Build into $out directly.
+      buildPhase = ''
+        runHook preBuild
+        mkdir -p "$out"
+        cp -r . "$out/source"
+        chmod -R u+w "$out/source"
+        patchShebangs "$out/source/scripts" "$out/source/tools"
+        cd "$out/source"
+        mkdir -p "$out/build"
+        cp ${configfile} "$out/build/.config"
+        make O="$out/build" ${toString makeFlags} olddefconfig
+        make O="$out/build" ${toString makeFlags} -j"$NIX_BUILD_CORES" modules_prepare
+        # Keep enough source for M= builds (headers, scripts, arch, Kbuild/Kconfig files).
+        rm -rf ${lib.concatMapStringsSep " " (d: "\"$out/source/${d}\"") prune}
+        runHook postBuild
+      '';
+      dontInstall = true;
+      dontFixup = true;
 
-    passthru = { inherit name; kdir = "build"; };
-  };
+      passthru = { inherit name makeFlags extraInputs; kdir = "build"; };
+    };
 
   fromTarball = name: { version, hash }: mkTree {
     inherit name version;
@@ -90,6 +99,7 @@ let
   };
 in
 {
+  inherit mkTree;
   trees = lib.mapAttrs fromTarball tarballs
     // lib.optionalAttrs (localPath != "") { local = localTree; };
 }
