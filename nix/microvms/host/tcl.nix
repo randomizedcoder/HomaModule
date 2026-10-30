@@ -94,7 +94,7 @@ in
     TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/lintdb.tcl > homa.db
     nagelfar -H -s ${nagelfarDb}/syntaxdb86.tcl -s ${nagelfarDb}/packagedb/tcltestdb.tcl -s homa.db \
       pkgIndex.tcl parse.tcl console.tcl lc.tcl bin/*.tcl tests/*.tcl tests/*.test | tee nagelfar.out
-    if grep -E '^[^:]+: Line +[0-9]+: [EW] ' nagelfar.out; then exit 1; fi
+    if grep -E '^[^:]+: (Line +)?[0-9]+: [EW] ' nagelfar.out; then exit 1; fi
 
     echo "== tclint"
     tclint .
