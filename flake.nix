@@ -26,7 +26,7 @@
 #   nix run   .#homa-lifecycle[-6_12]      # timed phases driven over ttyS0 + a virtio console
 #   nix run   .#homa-pair-test             # two VMs: echo + cp_node (Homa, TCP) over a link
 #   nix run   .#homa-pair-test-6_12-7_3    # ... server kernel, client kernel (every pairing)
-#   nix run   .#homa-pair-lifecycle[-6_12] # the pair driven over its consoles + netem loss phases
+#   nix run   .#homa-pair-lifecycle[-6_12] # the pair over its consoles: netem loss, Homa qdisc
 #   nix run   .#homa-pair-exp              # latency sweep (sysctls x workloads, metric deltas)
 #   nix run   .#homa-vm-matrix             # every VM test + pair in parallel, summary table
 #

@@ -177,7 +177,7 @@ let
         networking.hostName = if isPair then node.hostname else constants.hostname;
 
         environment.systemPackages = [ pkgs.kmod pkgs.iproute2 pkgs.coreutils homaUtils testScript ]
-          ++ lib.optional isPair pairScripts.nodeStats;
+          ++ lib.optionals isPair [ pairScripts.nodeStats (import ./qdisc.nix { inherit pkgs; }) ];
         environment.variables.HOMA_KO = homaKoPath;
 
         systemd.services.homa-test = lib.mkIf autoTest {

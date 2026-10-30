@@ -46,6 +46,11 @@ rec {
     "qdisc_dropped"
     "softnet_dropped"
     "tcp_retrans"
+    # Homa qdisc (homa-qdisc on): TCP packets it saw, and packets its pacer sent after
+    # deferring them.
+    "qdisc_tcp_packets"
+    "pacer_homa_packets"
+    "pacer_tcp_packets"
   ];
 
   # Prints /proc/net/homa_metrics plus "name value" lines for the NIC and stack counters
