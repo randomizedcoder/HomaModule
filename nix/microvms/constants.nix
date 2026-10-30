@@ -23,6 +23,10 @@
   # check compares with this one).
   oopsRegex = "BUG:|Oops|WARNING:|KASAN|UBSAN|general protection fault|list_add corruption";
 
+  # demo_client1 sends this many echo RPCs (100 B .. 1 MB); every echo check wants them all:
+  # smoke.nix, pair.nix and the Tcl drivers.
+  echoRpcs = 6;
+
   stateVersion = "24.11";
 
   # Lifecycle test (lifecycle.nix, pcp pattern): per-phase timeouts in seconds, and where

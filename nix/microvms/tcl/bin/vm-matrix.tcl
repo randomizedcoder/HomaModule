@@ -9,14 +9,15 @@
 #	    vm-matrix.tcl config.json
 #
 #	config.json (written by host/matrix.nix) lists the tests, each
-#	{name kernels exe}. Each test runs in its own directory,
-#	$HOMA_VM_LOGDIR/<name>/ (the tests share nothing on the host), with
-#	its output in <name>.out. HOMA_VM_JOBS caps how many run at once
-#	(default: all). Exits 1 if any test fails.
+#	{name kernels exe}, and gives echoRpcs (how many echo RPCs each test
+#	sends). Each test runs in its own directory, $HOMA_VM_LOGDIR/<name>/
+#	(the tests share nothing on the host), with its output in <name>.out.
+#	HOMA_VM_JOBS caps how many run at once (default: all). Exits 1 if any
+#	test fails.
 
 package require homa::lc
 package require json
-namespace import ::homa::lc::parse
+namespace import ::homa::lc::report
 
 # main --
 #
@@ -24,7 +25,8 @@ namespace import ::homa::lc::parse
 
 proc main {configFile} {
     global env
-    set tests [dict get [json::json2dict [homa::lc::slurp $configFile]] tests]
+    set config [json::json2dict [homa::lc::slurp $configFile]]
+    set tests [dict get $config tests]
     set count [llength $tests]
     set logdir [homa::lc::logdir]
     set jobs $count
@@ -49,12 +51,12 @@ proc main {configFile} {
     foreach test $tests {
         set name [dict get $test name]
         lassign [dict get $results $name] - secs
-        set report [parse matrixRow $name [dict get $test kernels] $secs \
-            [homa::lc::slurp [file join $logdir $name.out]]]
-        if {[dict get $report verdict] ne "PASS"} {
+        set outcome [report matrixRow $name [dict get $test kernels] $secs \
+            [dict get $config echoRpcs] [homa::lc::slurp [file join $logdir $name.out]]]
+        if {[dict get $outcome verdict] ne "PASS"} {
             incr failed
         }
-        lappend rows [dict get $report row]
+        lappend rows [dict get $outcome row]
     }
     set summary [file join $logdir summary.md]
     homa::lc::spit $summary [join $rows \n]

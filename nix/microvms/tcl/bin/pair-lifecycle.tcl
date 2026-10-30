@@ -34,7 +34,7 @@
 
 package require homa::lc
 package require json
-namespace import ::homa::lc::parse
+namespace import ::homa::lc::parse ::homa::lc::report
 
 namespace eval pair {
     # config	the parsed config.json.
@@ -104,7 +104,7 @@ proc pair::onBoth {id name log cmd {detail {}}} {
         set rc 0
         dict for {key node} $nodes {
             set result [$node run $log $timeout $cmd]
-            set rc [parse combine $rc [dict get $result rc]]
+            set rc [report combine $rc [dict get $result rc]]
         }
         if {$detail eq ""} {
             set detail [regsub -all { +} [string map {\n " "} [dict get $result out]] " "]
@@ -175,7 +175,7 @@ proc pair::traffic {id name {loss {}} {must {}}} {
         set before [dict create]
         dict for {key node} $nodes {
             set result [$node run [file join $dir $key-stats0] $timeout homa-node-stats]
-            set rc [parse combine $rc [dict get $result rc]]
+            set rc [report combine $rc [dict get $result rc]]
             dict set before $key [parse snap [dict get $result out] $metrics]
         }
 
@@ -189,17 +189,18 @@ proc pair::traffic {id name {loss {}} {must {}}} {
         }
 
         set deltas [dict create]
-        set report {}
+        set deltaLines {}
         dict for {key node} $nodes {
             set result [$node run [file join $dir $key-stats1] $timeout homa-node-stats]
-            set rc [parse combine $rc [dict get $result rc]]
+            set rc [report combine $rc [dict get $result rc]]
             dict set deltas $key [parse delta [dict get $before $key] \
                 [parse snap [dict get $result out] $metrics]]
-            lappend report "$key: [parse deltaLine [dict get $deltas $key]]"
+            lappend deltaLines "$key: [report deltaLine [dict get $deltas $key]]"
         }
-        homa::lc::spit [file join $dir deltas] [join $report \n]
+        homa::lc::spit [file join $dir deltas] [join $deltaLines \n]
 
-        set failed [parse trafficFailures $echoes $stats(homa) $stats(tcp)]
+        set want [dict get $config echoRpcs]
+        set failed [parse trafficFailures $want $echoes $stats(homa) $stats(tcp)]
         set drops {}
         if {$loss ne ""} {
             set dropReport {}
@@ -232,15 +233,15 @@ proc pair::traffic {id name {loss {}} {must {}}} {
 
         if {$name eq "baseline"} {
             # The lines homa-vm-matrix puts in its table.
-            puts "HOMA_PAIR_ECHO responses=$echoes (want 6)"
+            puts "HOMA_PAIR_ECHO responses=$echoes (want $want)"
             puts "HOMA_PAIR_CPNODE_homa $stats(homa)"
             puts "HOMA_PAIR_CPNODE_tcp $stats(tcp)"
         }
-        foreach line $report {
+        foreach line $deltaLines {
             puts "    $line"
         }
-        set detail [format "echo %s/6; Homa %s Kops P50 %s P99 %s us; TCP %s Kops P99 %s us%s" \
-            $echoes [parse field $stats(homa) clients:] [parse field $stats(homa) P50] \
+        set detail [format "echo %s/%s; Homa %s Kops P50 %s P99 %s us; TCP %s Kops P99 %s us%s" \
+            $echoes $want [parse field $stats(homa) clients:] [parse field $stats(homa) P50] \
             [parse field $stats(homa) P99] [parse field $stats(tcp) clients:] \
             [parse field $stats(tcp) P99] $drops]
         append detail [format "; RESENDs %d, resent %d, rpc_timeouts %d, tcp_retrans %d%s" \

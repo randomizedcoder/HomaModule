@@ -78,11 +78,12 @@ dict for {name spec} $fixed {
 }
 puts "##nagelfar implicitvarcmd {spawn *} spawn_id"
 
-# The ensembles: parse under its full name and as imported, protocol as
-# console.tcl finds it (namespace path).
+# The ensembles, under their full names and as imported (or, for protocol,
+# as console.tcl finds it through namespace path).
 foreach {ensemble names} {
     ::homa::lc::parse {homa::lc::parse parse}
     ::homa::lc::protocol {homa::lc::protocol protocol}
+    ::homa::lc::report {homa::lc::report report}
 } {
     set map [namespace ensemble configure $ensemble -map]
     if {![llength $map]} {

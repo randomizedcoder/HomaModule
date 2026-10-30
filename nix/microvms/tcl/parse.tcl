@@ -1,7 +1,7 @@
 # parse.tcl --
 #
-#	Pure functions used by the lifecycle drivers: reading guest output
-#	(dmesg, tc, Homa's counters, cp_node's stats) and formatting results.
+#	Pure functions used by the lifecycle drivers to read guest output:
+#	dmesg, tc, Homa's counters, cp_node's stats. report.tcl formats it.
 #	Nothing here touches a console, a file or the clock, so tests/parse.test
 #	covers all of it with tables.
 #
@@ -14,17 +14,13 @@ namespace eval ::homa::lc {
     namespace export parse
 }
 namespace eval ::homa::lc::parse {
-    namespace export firstLine lastLine lines countLines verdict combine \
-        phaseLine tableRow firstKernelLine oops smokeDetail snap delta get \
-        deltaLine field positive trafficFailures netemSent dropRate \
-        netemLimitOk netemDetail matrixRow
+    namespace export firstLine lastLine lines countLines firstKernelLine oops \
+        smokeDetail snap delta get field positive trafficFailures netemSent \
+        dropRate netemLimitOk netemDetail
     namespace ensemble create
 
     # Kernel messages that fail the dmesg and serial-log phases.
     variable oopsRe {BUG:|Oops|WARNING:|KASAN|UBSAN|general protection fault|list_add corruption}
-
-    # Shown in a table cell when a value is missing.
-    variable dash —
 }
 
 # ---- Text ------------------------------------------------------------------------
@@ -60,56 +56,6 @@ proc ::homa::lc::parse::lines {text} {
 
 proc ::homa::lc::parse::countLines {re text} {
     return [llength [lsearch -all -regexp [split $text \n] $re]]
-}
-
-# ---- Phase results ---------------------------------------------------------------
-
-# homa::lc::parse::verdict --
-#
-#	Maps a phase's result to PASS, SKIP or FAIL.
-#
-# Arguments:
-#	rc	0, any other exit status, or "skip".
-
-proc ::homa::lc::parse::verdict {rc} {
-    if {$rc eq "skip"} {
-        return SKIP
-    }
-    if {![string is entier -strict $rc]} {
-        return -code error "bad rc \"$rc\""
-    }
-    return [expr {$rc == 0 ? "PASS" : "FAIL"}]
-}
-
-# homa::lc::parse::combine --
-#
-#	Combines the results of several commands in one phase: returns next if
-#	it failed (is not 0), else rc. Folded over the commands, this gives the
-#	last failure, or 0.
-
-proc ::homa::lc::parse::combine {rc next} {
-    return [expr {$next == 0 ? $rc : $next}]
-}
-
-# homa::lc::parse::phaseLine --
-#
-#	Returns the progress line printed when a phase ends.
-
-proc ::homa::lc::parse::phaseLine {phase name verdict ms detail} {
-    set line "  phase $phase $name: $verdict ($ms ms)"
-    if {$detail ne ""} {
-        append line ": $detail"
-    }
-    return $line
-}
-
-# homa::lc::parse::tableRow --
-#
-#	Returns a phase's row in summary.md (a Markdown table).
-
-proc ::homa::lc::parse::tableRow {phase name verdict ms detail} {
-    set detail [string map {| \\|} $detail]
-    return "| $phase | $name | $verdict | $ms | $detail |"
 }
 
 # ---- Guest output --------------------------------------------------------------
@@ -220,14 +166,6 @@ proc ::homa::lc::parse::get {counters key} {
     return 0
 }
 
-# homa::lc::parse::deltaLine --
-#
-#	Formats counters as "name=value" pairs for the deltas log.
-
-proc ::homa::lc::parse::deltaLine {counters} {
-    return [join [lmap {key value} $counters {string cat $key = $value}]]
-}
-
 # ---- cp_node -----------------------------------------------------------------------
 
 # homa::lc::parse::field --
@@ -254,18 +192,22 @@ proc ::homa::lc::parse::positive {value} {
 
 # homa::lc::parse::trafficFailures --
 #
-#	Returns what failed in one traffic run: "echo" unless all six echo RPCs
+#	Returns what failed in one traffic run: "echo" unless every echo RPC
 #	completed, "homa" or "tcp" unless that cp_node run timed any RPC (a P99
 #	above 0; at 5 % loss TCP manages so few RPCs that its Kops/s rounds to 0).
 #
 # Arguments:
+#	want	how many echo RPCs demo_client1 sends (constants.echoRpcs).
 #	echoes	how many echo responses arrived.
 #	homa	cp_node's last stats line over Homa.
 #	tcp	cp_node's last stats line over TCP.
 
-proc ::homa::lc::parse::trafficFailures {echoes homa tcp} {
+proc ::homa::lc::parse::trafficFailures {want echoes homa tcp} {
+    if {![string is entier -strict $want]} {
+        return -code error "bad echo count \"$want\""
+    }
     set failed {}
-    if {$echoes ne "6"} {
+    if {![string is entier -strict $echoes] || $echoes != $want} {
         lappend failed echo
     }
     foreach proto {homa tcp} line [list $homa $tcp] {
@@ -352,38 +294,6 @@ proc ::homa::lc::parse::netemDetail {text} {
         return $settings
     }
     return {}
-}
-
-# ---- homa-vm-matrix --------------------------------------------------------------------
-
-# homa::lc::parse::matrixRow --
-#
-#	Reads one test's output for homa-vm-matrix's table.
-#
-# Arguments:
-#	name	the test (its package name).
-#	kernels	the kernel(s) it ran.
-#	secs	how long it took.
-#	out	its output. A test passed if a line starts "VERDICT: PASS"; echo,
-#		GRO and cp_node figures come from its HOMA_* lines, each optional.
-#
-# Results:
-#	A dictionary: verdict (PASS or FAIL) and row (the Markdown table row).
-
-proc ::homa::lc::parse::matrixRow {name kernels secs out} {
-    variable dash
-    set result [expr {[regexp -line {^VERDICT: PASS} $out] ? "PASS" : "FAIL"}]
-    set echoes 0
-    regexp {HOMA_(?:SMOKE|PAIR)_ECHO responses=(\d+)} $out -> echoes
-    set gro $dash
-    regexp {homa_gro_receive calls=(\d+)} $out -> gro
-    set cells [list $name $kernels $result $secs $echoes/6 $gro]
-    foreach proto {homa tcp} {
-        set line [lindex [regexp -all -inline -line "HOMA_PAIR_CPNODE_$proto .*" $out] end]
-        lappend cells [field $line clients: $dash] \
-            "[field $line P50 $dash] / [field $line P99 $dash]"
-    }
-    return [dict create verdict $result row "| [join $cells { | }] |"]
 }
 
 package provide homa::lc::parse 1.0

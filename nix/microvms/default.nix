@@ -176,6 +176,7 @@ let
   # pair, in parallel.
   matrix = import ./host/matrix.nix {
     inherit lib tclApps;
+    inherit (constants) echoRpcs;
     tests =
       lib.concatMap
         (s: map
