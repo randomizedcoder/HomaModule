@@ -25,9 +25,11 @@ set fixed {
     json::json2dict x
 }
 
-# Method arguments that are scripts, run in the caller's scope.
+# Arguments that are scripts, run in the caller's scope: methods as
+# "Class method", procedures by their name in homa::lc.
 set scripts {
     {Table phase} {x x c}
+    withEnv {x x c}
 }
 
 # tokens --
@@ -94,7 +96,11 @@ foreach ensemble {homa::lc::parse parse} {
 # The package's own procedures, under their full names and as found from
 # the classes' methods (namespace path).
 foreach cmd [lsort [info procs ::homa::lc::*]] {
-    set spec [tokens [procArgs $cmd]]
+    if {[dict exists $scripts [namespace tail $cmd]]} {
+        set spec [dict get $scripts [namespace tail $cmd]]
+    } else {
+        set spec [tokens [procArgs $cmd]]
+    }
     syntax syntax [string trimleft $cmd :] {*}$spec
     syntax syntax [namespace tail $cmd] {*}$spec
 }
