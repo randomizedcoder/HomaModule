@@ -49,6 +49,11 @@
     # never overflows, so the only drops are the configured random loss, not tail drops
     # that would skew the results. pair-lifecycle.nix checks each node's measured drop
     # rate against the configured one.
+    # Homa qdisc phases: net.homa.link_mbps for the paced phase. The qdisc uses it when the
+    # NIC reports no speed (virtio-net), and at 1 Gb/s a 1 MB echo is several ms of link
+    # time, so the pacer must defer packets.
+    qdisc.pacedMbps = 1000;
+
     netem = {
       limit = 100000;
       phases = [

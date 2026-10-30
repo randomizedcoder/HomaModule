@@ -208,7 +208,7 @@ nix run   .#homa-lifecycle[-<s>]     # host-driven, timed phases over ttyS0 + vi
 nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
 nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>
-nix run   .#homa-pair-lifecycle[-<s>] # the pair over both consoles, timed, with netem loss/delay
+nix run   .#homa-pair-lifecycle[-<s>] # the pair over both consoles, timed: netem loss/delay, Homa qdisc
 nix run   .#homa-pair-exp            # latency sweep: cp_node per sysctl setting + metric deltas
 nix run   .#homa-vm-matrix           # every VM test and pair in parallel -> summary table
 nix run   .#homa-pair-exp-socket     # ... over QEMU's TCP socket link (STATUS.md F2)

@@ -16,9 +16,15 @@
 #                                   loss (no tail drops: every qdisc has limit >= 100000), and
 #                                   with loss, Homa must have sent RESENDs
 #   9     netem clear, traffic recovered
-#   10    stop servers
-#   11    rmmod                     each node
-#   12-15 dmesg, shutdown, exit, serial-log   each node
+#   10    qdisc homa                Homa's qdisc on eth1 of both nodes (qdisc.nix), traffic
+#                                   through it (TCP must pass the qdisc). virtio-net reports
+#                                   no link speed (round-4 candidate 5)
+#   11    qdisc paced               net.homa.link_mbps lowered so the pacer must defer and
+#                                   send packets; traffic
+#   12    qdisc off                 link_mbps restored, default qdisc back
+#   13    stop servers
+#   14    rmmod                     each node
+#   15-18 dmesg, shutdown, exit, serial-log   each node
 #
 # The phase table is printed and written to summary.md; the last line is the VERDICT. Logs
 # are in $HOMA_VM_LOGDIR (default: a fresh mktemp -d): node0/ and node1/ (each the working
@@ -43,8 +49,9 @@ let
   peer = pair.nodes.server.ip;
   netemArgs = p: lib.optionalString (p.delay != null) "delay ${p.delay} "
     + "loss ${p.loss}% limit ${toString netem.limit}";
-  # The output goes to a file, grepped afterwards: under the console shell's job control,
-  # timeout's SIGTERM also reaches the rest of a pipeline ("Terminated"), losing its output.
+  # Output goes to a file (here and for echo), grepped afterwards: under the console shell's
+  # job control, timeout's SIGTERM also reaches the rest of a pipeline ("Terminated"),
+  # losing its output.
   cpNode = proto: "timeout ${toString pair.loadSeconds} cp_node client --protocol ${proto}"
     + " --workload ${pair.workload} --gbps ${pair.gbps} --first-server 0 --server-nodes 1 --id 1"
     + lib.optionalString (proto == "homa") " --first-port ${toString pair.cpNodeHomaPort}"
@@ -129,13 +136,14 @@ pkgs.writeShellApplication {
       record 6 servers "$rc" "$start" "$detail"
     fi
 
-    # traffic <phase> <name> <loss %, or "" without netem>: echo, then cp_node Homa and TCP,
-    # from node1 to node0, with counter deltas on both nodes. With netem, also checks each
-    # node's measured drop rate against the configured loss, and (loss > 0) that Homa
-    # recovered by sending RESENDs.
+    # traffic <phase> <name> <loss %, or "" without netem> [<counter>]: echo, then cp_node
+    # Homa and TCP, from node1 to node0, with counter deltas on both nodes. With netem, also
+    # checks each node's measured drop rate against the configured loss. <counter>, if
+    # given, must have moved (summed over both nodes): packets_sent_RESEND under loss, the
+    # qdisc and pacer counters with the Homa qdisc.
     traffic() {
-      local phase=$1 name=$2 loss=$3 d=traffic/$2 start rc=0 why="" n echo_ homa tcp dc ds \
-        pkts drops m drop_ok drop_detail="" resend
+      local phase=$1 name=$2 loss=$3 must=''${4:-} d=traffic/$2 start rc=0 why="" n echo_ homa \
+        tcp dc ds pkts drops m drop_ok drop_detail="" resend moved=""
       both_shells "$phase" "traffic $name" || return 0
       start=$(now_ms)
       mkdir -p "$d"
@@ -143,7 +151,7 @@ pkgs.writeShellApplication {
         con_cap "$n" ${toString t.command} "$d/$n-stats0" homa-node-stats || rc=$?
       done
       con_cap node1 ${toString t.echo} "$d/echo.log" \
-        "timeout ${toString (t.echo - 10)} demo_client1 $peer 4000 < /dev/null | grep -c '^Received response'" || true
+        "timeout ${toString (t.echo - 10)} demo_client1 $peer 4000 > /tmp/echo.out 2>&1 < /dev/null; grep -c '^Received response' /tmp/echo.out" || true
       echo_=$(tail -n 1 "$d/echo.log")
       con_cap node1 ${toString t.command} "$d/homa.log" "${cpNode "homa"}" || true
       homa=$(tail -n 1 "$d/homa.log")
@@ -157,8 +165,10 @@ pkgs.writeShellApplication {
       printf 'node0: %s\nnode1: %s\n' "$ds" "$dc" > "$d/deltas"
 
       [ "$echo_" = 6 ] || why+=" echo"
-      awk -v k="$(field "$homa" clients:)" 'BEGIN { exit !(k > 0) }' || why+=" homa"
-      awk -v k="$(field "$tcp" clients:)" 'BEGIN { exit !(k > 0) }' || why+=" tcp"
+      # cp_node made progress if it timed any RPC (a P99): at 5 % loss TCP manages a few
+      # RPCs a second, which its Kops field rounds to 0.00.
+      awk -v k="$(field "$homa" P99)" 'BEGIN { exit !(k > 0) }' || why+=" homa"
+      awk -v k="$(field "$tcp" P99)" 'BEGIN { exit !(k > 0) }' || why+=" tcp"
       if [ -n "$loss" ]; then
         for n in node0 node1; do
           con_cap "$n" ${toString t.command} "$d/$n-tc" "tc -s qdisc show dev eth1" || rc=$?
@@ -177,8 +187,10 @@ pkgs.writeShellApplication {
         drop_detail="; netem drops$drop_detail"
       fi
       resend=$(( $(get "$ds" packets_sent_RESEND) + $(get "$dc" packets_sent_RESEND) ))
-      if [ -n "$loss" ] && awk -v l="$loss" 'BEGIN { exit !(l > 0) }' && [ "$resend" = 0 ]; then
-        why+=" no-resends"
+      if [ -n "$must" ]; then
+        moved=$(( $(get "$ds" "$must") + $(get "$dc" "$must") ))
+        [ "$moved" -gt 0 ] || why+=" no-$must"
+        moved="; $must $moved"
       fi
       [ -z "$why" ] || rc=1
 
@@ -190,7 +202,7 @@ pkgs.writeShellApplication {
       fi
       sed 's/^/    /' "$d/deltas"
       record "$phase" "traffic $name" "$rc" "$start" \
-        "echo $echo_/6; Homa $(field "$homa" clients:) Kops P50 $(field "$homa" P50) P99 $(field "$homa" P99) us; TCP $(field "$tcp" clients:) Kops P99 $(field "$tcp" P99) us$drop_detail; RESENDs $resend, resent $(( $(get "$ds" resent_packets) + $(get "$dc" resent_packets) )), rpc_timeouts $(( $(get "$ds" rpc_timeouts) + $(get "$dc" rpc_timeouts) )), tcp_retrans $(( $(get "$ds" tcp_retrans) + $(get "$dc" tcp_retrans) ))''${why:+; failed:$why}"
+        "echo $echo_/6; Homa $(field "$homa" clients:) Kops P50 $(field "$homa" P50) P99 $(field "$homa" P99) us; TCP $(field "$tcp" clients:) Kops P99 $(field "$tcp" P99) us$drop_detail; RESENDs $resend, resent $(( $(get "$ds" resent_packets) + $(get "$dc" resent_packets) )), rpc_timeouts $(( $(get "$ds" rpc_timeouts) + $(get "$dc" rpc_timeouts) )), tcp_retrans $(( $(get "$ds" tcp_retrans) + $(get "$dc" tcp_retrans) ))$moved''${why:+; failed:$why}"
     }
 
     # netem_set <phase> <name> <tc netem arguments>: replace eth1's root qdisc on both nodes,
@@ -212,7 +224,7 @@ pkgs.writeShellApplication {
     traffic 7 baseline ""
     ${lib.concatImapStrings (i: p: ''
       netem_set 8.${toString i} ${p.name} ${lib.escapeShellArg (netemArgs p)}
-      traffic 8.${toString i} ${p.name} ${p.loss}
+      traffic 8.${toString i} ${p.name} ${p.loss} ${lib.optionalString (p.loss != "0") "packets_sent_RESEND"}
     '') netem.phases}
     if both_shells 9 "netem clear"; then
       start=$(now_ms)
@@ -225,33 +237,56 @@ pkgs.writeShellApplication {
     fi
     traffic 9 recovered ""
 
-    # ── 10 stop servers ──────────────────────────────────────────────────────────────
-    if need_shell node0 10 "stop servers"; then
+    # ── 10 Homa qdisc, 11 paced, 12 off ──────────────────────────────────────────────
+    # on_both <phase> <name> <log> <command>: run a command on both nodes; the detail is
+    # node1's output.
+    on_both() {
+      local n start rc=0
+      both_shells "$1" "$2" || return 0
+      start=$(now_ms)
+      for n in node0 node1; do
+        con_cap "$n" ${toString t.command} "''${dir[$n]}/$3" "$4" || rc=$?
+      done
+      record "$1" "$2" "$rc" "$start" "$(tr '\n' ' ' < node1/"$3" | sed 's/  */ /g')"
+    }
+    # The pacer works from the link speed. virtio-net reports none (SPEED_UNKNOWN: round-4
+    # candidate 5). Phase 11 sets net.homa.link_mbps, which the qdisc uses when the NIC
+    # reports no speed, low enough that the pacer has to defer packets.
+    on_both 10 "qdisc homa" qdisc-on.log \
+      "sysctl -n net.homa.link_mbps > /tmp/link_mbps; homa-qdisc on > /tmp/qdisc.out && head -n 1 /tmp/qdisc.out && grep '^qdisc homa' /tmp/qdisc.out"
+    traffic 10 homa-qdisc "" qdisc_tcp_packets
+    on_both 11 "qdisc paced" qdisc-paced.log "sysctl -w net.homa.link_mbps=${toString lc.qdisc.pacedMbps}"
+    traffic 11 homa-qdisc-paced "" pacer_homa_packets
+    on_both 12 "qdisc off" qdisc-off.log \
+      "sysctl -w net.homa.link_mbps=\$(cat /tmp/link_mbps) && homa-qdisc off && ! tc qdisc show dev eth1 | grep -q '^qdisc homa'"
+
+    # ── 13 stop servers ──────────────────────────────────────────────────────────────
+    if need_shell node0 13 "stop servers"; then
       start=$(now_ms)
       rc=0
       con_run node0 ${toString t.command} node0/servers.log \
         "pkill -x demo_server1; pkill -x cp_node; sleep 1; ! pgrep -x 'demo_server1|cp_node'" || rc=$?
-      record 10 "stop servers" "$rc" "$start" ""
+      record 13 "stop servers" "$rc" "$start" ""
     fi
 
-    # ── 11 rmmod ─────────────────────────────────────────────────────────────────────
+    # ── 14 rmmod ─────────────────────────────────────────────────────────────────────
     for n in node0 node1; do
-      if need_shell "$n" 11 "rmmod''${sfx[$n]}"; then
+      if need_shell "$n" 14 "rmmod''${sfx[$n]}"; then
         start=$(now_ms)
         rc=0
         con_cap "$n" ${toString t.command} "''${dir[$n]}/rmmod.log" "rmmod homa 2>&1" || rc=$?
-        record 11 "rmmod''${sfx[$n]}" "$rc" "$start" "$(head -n 1 "''${dir[$n]}/rmmod.log")"
+        record 14 "rmmod''${sfx[$n]}" "$rc" "$start" "$(head -n 1 "''${dir[$n]}/rmmod.log")"
       fi
     done
 
-    lc_dmesg node0 12
-    lc_dmesg node1 12
-    lc_shutdown node0 13
-    lc_shutdown node1 13
-    lc_exit node0 14
-    lc_exit node1 14
-    lc_serial_log node0 15
-    lc_serial_log node1 15
+    lc_dmesg node0 15
+    lc_dmesg node1 15
+    lc_shutdown node0 16
+    lc_shutdown node1 16
+    lc_exit node0 17
+    lc_exit node1 17
+    lc_serial_log node0 18
+    lc_serial_log node1 18
     lc_verdict
   '';
 }

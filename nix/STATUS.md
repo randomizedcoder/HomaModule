@@ -34,8 +34,8 @@ Related docs:
 | Two VMs | `homa-pair-test-<server>-<client>` | ✅ all four 6.12/7.3 pairings: ping, echo 100 B–1 MB, cp_node w4 over Homa and over TCP, clean dmesg on both. 8 VMs in parallel finish in 50 s |
 | Latency sweep | `homa-pair-exp`, `homa-pair-exp-socket` | ✅ F2 explained: QEMU's TCP `socket` link stalls packets; over the UDP `dgram` link (now the default) Homa's P50 matches TCP's |
 | Lifecycle | `homa-lifecycle-{6_12,7_3}` | ❌ on `main`: phase 3 (smoke) crashes in `homa_route_free` (F8), and phases 7–8 report it. ✅ all 9 phases with the fix, about 22 s |
-| Pair lifecycle | `homa-pair-lifecycle-{6_12,7_3}` | ✅ with the F8 fix: 37 timed phases, including five `tc netem` phases (delay, 0.1–5 % loss). Echo, cp_node Homa and TCP complete under every one, and Homa recovers by RESEND. Delay alone triggers many resends (F10). On `main` every traffic phase passes, then both nodes oops at rmmod (F8) |
-| VM matrix | `homa-vm-matrix` | ❌ on `main` (F8). ✅ 10/10 with the fix (fork #22): smoke, lifecycle and pair lifecycle per kernel, plus four pairs, in 155 s |
+| Pair lifecycle | `homa-pair-lifecycle-{6_12,7_3}` | ✅ with the F8 and F11 fixes: 39 timed phases, including five `tc netem` phases (delay, 0.1–5 % loss) and Homa's qdisc with its pacer. Echo, cp_node Homa and TCP complete under every one, and Homa recovers by RESEND. Delay alone triggers many resends (F10). On `main`, traffic stalls under Homa's qdisc (F11), and both nodes oops at rmmod (F8) |
+| VM matrix | `homa-vm-matrix` | ❌ on `main` (F8, F11). ✅ 10/10 with the fixes (forks #22, #23): smoke, lifecycle and pair lifecycle per kernel, plus four pairs, in 183 s |
 | KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
@@ -97,7 +97,7 @@ netem qdisc has `limit 100000` (packets), enforced by an `assert` in `pair-lifec
 the queue never overflows and the only drops are the configured random loss, not tail drops.
 A phase fails unless:
 
-- echo returns 6/6 and both cp_node runs complete RPCs;
+- echo returns 6/6 and both cp_node runs complete RPCs (they report a P99);
 - each node's netem drop rate matches the configured loss (exactly 0 drops at 0 %); and
 - with loss, Homa sent RESENDs.
 
@@ -123,8 +123,23 @@ both nodes):
   configured loss plus 0.5 points.
 - **Delay alone makes Homa resend (F10).**
 
+**Homa's qdisc (phases 10–12).** `homa-qdisc on` (`qdisc.nix`) attaches Homa's qdisc to eth1
+on both nodes: mq with `homa` on each child, as `cloudlab/bin/config` does, or `homa` as the
+root with one tx queue (the case here). Phase 10 runs traffic through it, and TCP must pass
+through the qdisc (`qdisc_tcp_packets`). Phase 11 sets `net.homa.link_mbps=1000`, so a 1 MB
+echo is several ms of link time and the pacer must defer and send Homa packets
+(`pacer_homa_packets`). Phase 12 restores `link_mbps` and the default qdisc.
+
+| Phase | Qdisc | `main` + F8 fix | + F11 fix (fork #23), 7.3 |
+|---|---|---|---|
+| 10 | `homa`, `link_mbps` 25000 | ❌ echo, Homa and TCP stall: 0 Kops, 1170 RESENDs | ✅ Homa 0.39 Kops, TCP 0.42; TCP through the qdisc 107892 packets |
+| 11 | `homa`, `link_mbps` 1000 | ❌ the same; the pacer sends nothing | ✅ Homa 0.36 Kops, TCP 0.39; the pacer sent 145549 Homa packets |
+
+6.12 matches 7.3. Rates are the same as without the qdisc, because the emulated link is far
+slower than `link_mbps`.
+
 Times: boot to both shells about 18 s; each traffic phase about 13.6 s; the whole run about
-2.5 min.
+3 min.
 
 ### Build matrix (`nix build .#homa-build-matrix`)
 
@@ -232,7 +247,8 @@ nothing, and its P99 is about 42 ms.
   25 ms). Both probably come from the w4 size mix on a slow emulated link, but this hasn't
   been checked.
 - **Not the cause:** `link_mbps` (no effect, above), and round-4 candidate 5
-  (`SPEED_UNKNOWN`), because the Homa qdisc isn't attached in these tests.
+  (`SPEED_UNKNOWN`), because the Homa qdisc isn't attached in these tests. With it attached,
+  candidate 5 stalls traffic outright rather than slowing it (F11).
 
 ### F3: Homa's built-in packet-drop knobs do nothing
 
@@ -289,8 +305,8 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 
 - **KASAN/KMEMLEAK VM:** never run. It needs a sanitizer kernel build, about 30 min, cached
   afterwards.
-- **Not exercised over a real link yet:** the Homa qdisc and pacer, IPv6 between VMs, and more
-  than two nodes. (Loss and delay are now covered by `homa-pair-lifecycle`.)
+- **Not exercised over a real link yet:** IPv6 between VMs, and more than two nodes. (Loss,
+  delay, and the Homa qdisc and pacer are now covered by `homa-pair-lifecycle`.)
 - **7.0–7.2:** compile-checked only; there is no bootable kernel for them in the flake yet.
 
 ### F8: Use-after-free in `homa_route_free` on netns exit and rmmod (fix: fork #22)
@@ -364,6 +380,23 @@ packets). With 1 % loss and no delay, resends match the drops (2080 RESENDs, 177
   John about. The 2 ms RTT is long for a datacenter, but cross-rack or virtualized paths can
   see it.
 
+### F11: Homa's qdisc stalls all traffic on NICs that report no link speed (fix: fork #23)
+
+Round-4 candidate 5, now reproduced in VMs.
+- **Cause:** virtio-net reports `SPEED_UNKNOWN` (-1). `homa_qdev_update_sysctl`
+  (`homa_qdisc.c:1404`) takes it as `link_mbps`, so `max_nic_queue_bytes` is negative.
+- **Effect:** every packet the qdisc may defer (Homa DATA in messages of 1000 bytes or more,
+  and TCP packets of 1000 bytes or more) is deferred, and the pacer never sends it. With
+  `homa-qdisc on`, echo, cp_node Homa and TCP all stall (phases 10–11 above).
+- **Wider reach:** any NIC whose link is down or whose speed is unknown, and a speed of 0
+  would divide by zero.
+- **Fix:** keep `homa->link_mbps` unless the speed is valid.
+  [randomizedcoder/HomaModule#23](https://github.com/randomizedcoder/HomaModule/pull/23)
+  - Test-first: `homa_qdev_update_sysctl__link_speed_unknown` fails on `main` (`link_mbps`
+    -1) and passes with the fix.
+  - 885/885 in IPv6 and `--ipv4` modes.
+  - The pair lifecycle is green on 7.3 and 6.12.
+
 ---
 
 ## Follow-up actions
@@ -375,10 +408,11 @@ packets). With 1 % loss and no delay, resends match the drops (2080 RESENDs, 177
 | 13 | Send F8 upstream once the user has reviewed fork #22 | Use-after-free on every netns exit and rmmod | — | us → upstream |
 | 3 | ~~PLAN-pairs phase 4: netem loss and delay~~ ✅ `homa-pair-lifecycle`; found F10 | — | — | — |
 | 16 | F10: why 1 ms of delay triggers resends (sweep `resend_ticks` under netem delay) | A quarter of DATA resent with no loss | small | us, then maybe John |
-| 4 | PLAN-pairs phase 5: Homa qdisc on virtio | Should reproduce round-4 candidate 5 in a real kernel; exercises the pacer | medium | us |
+| 4 | ~~PLAN-pairs phase 5: Homa qdisc on virtio~~ ✅ `homa-pair-lifecycle` phases 10–12; reproduced round-4 candidate 5 (F11), fix fork #23 | — | — | — |
+| 17 | Send F11 upstream once the user has reviewed fork #23 | The Homa qdisc stalls all traffic on NICs that report no speed | — | us → upstream |
 | 5 | Run `homa-microvm-test-debug`, then a KASAN pair test | Memory-safety coverage of the real data path | medium (kernel build) | us |
 | 6 | IPv6 pair test (`--ipv6` for cp_node, v6 addresses on eth1) | #137/#138 were IPv6 bugs; nothing tests v6 between nodes | small | us |
-| 7 | Round-4 candidates 5–8, test-first | More upstream fixes in John's style | medium | us → upstream |
+| 7 | Round-4 candidates 6–8, test-first (5 is fork #23) | More upstream fixes in John's style | medium | us → upstream |
 | 8 | ~~Which LTS will `main` target?~~ ✅ 7.3 or later (John, #120, 2026-10-29) | Closes F1; unit KDIR moves to 7.3 (F5) | — | — |
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
 | 10 | ~~Post F2 upstream~~ not needed: VM link, not Homa | — | — | — |
@@ -397,4 +431,4 @@ packets). With 1 % loss and no delay, resends match the drops (2080 RESENDs, 177
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
 | 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
-| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0). `homa-pair-lifecycle`: the pair over both consoles, with `tc netem` loss and delay phases (limit 100000); found F10 |
+| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0). `homa-pair-lifecycle`: the pair over both consoles, with `tc netem` loss and delay phases (limit 100000); found F10. PLAN-pairs phase 5: Homa's qdisc and pacer in the pair lifecycle; reproduced round-4 candidate 5 (F11), fix as fork #23 |
