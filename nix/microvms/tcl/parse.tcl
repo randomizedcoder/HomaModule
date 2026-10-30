@@ -16,7 +16,7 @@ namespace eval ::homa::lc {
 namespace eval ::homa::lc::parse {
     namespace export firstLine lastLine lines countLines firstKernelLine oops \
         smokeDetail snap delta get field positive trafficFailures netemSent \
-        dropRate netemLimitOk netemDetail
+        dropRate netemCheck netemLimitOk netemDetail oopsCount
     namespace ensemble create
 
     # Kernel messages that fail the dmesg and serial-log phases.
@@ -87,6 +87,14 @@ proc ::homa::lc::parse::oops {text {also {}}} {
     return [lsearch -all -inline -regexp [split $text \n] $re]
 }
 
+# homa::lc::parse::oopsCount --
+#
+#	Returns how many lines of text report a kernel bug or warning.
+
+proc ::homa::lc::parse::oopsCount {text} {
+    return [llength [oops $text]]
+}
+
 # homa::lc::parse::smokeDetail --
 #
 #	Returns the detail for the smoke phase: homa-smoke's last verdict, or the
@@ -138,21 +146,16 @@ proc ::homa::lc::parse::snap {text keys} {
 #	A counter missing from either side counts as 0.
 
 proc ::homa::lc::parse::delta {before after} {
+    # In the first snap's order, then any new counters: a key seen twice
+    # gives the same difference, and dict set keeps its first place.
     set moved [dict create]
-    foreach key [lsort -unique [concat [dict keys $before] [dict keys $after]]] {
+    foreach key [concat [dict keys $before] [dict keys $after]] {
         set diff [expr {[get $after $key] - [get $before $key]}]
         if {$diff != 0} {
             dict set moved $key $diff
         }
     }
-    # Keep the first snap's order, then any new counters.
-    set ordered [dict create]
-    foreach key [concat [dict keys $before] [dict keys $after]] {
-        if {[dict exists $moved $key]} {
-            dict set ordered $key [dict get $moved $key]
-        }
-    }
-    return $ordered
+    return $moved
 }
 
 # homa::lc::parse::get --
@@ -269,6 +272,34 @@ proc ::homa::lc::parse::dropRate {packets drops loss} {
                 && ($total < 10000 || $pct >= $loss / 2.0)}]
     }
     return [dict create rate [format %.2f $pct] ok $pass]
+}
+
+# homa::lc::parse::netemCheck --
+#
+#	Checks one node's netem drops (see dropRate) from its "tc -s qdisc
+#	show" output. With no netem counters there is nothing to judge: the
+#	check passes, and the report shows the drops as unknown.
+#
+# Arguments:
+#	node	the node's name, for the report.
+#	text	its "tc -s qdisc show dev eth1" output.
+#	loss	the configured loss, in percent.
+#
+# Results:
+#	A dictionary: ok (1 or 0) and report, e.g. "node1 4559/100969
+#	(4.52%)" or "node1 ?/0 (0.00%)".
+
+proc ::homa::lc::parse::netemCheck {node text loss} {
+    set sent [netemSent $text]
+    if {[llength $sent]} {
+        lassign $sent packets drops
+        set shown $drops
+    } else {
+        lassign {0 0 ?} packets drops shown
+    }
+    set measured [dropRate $packets $drops $loss]
+    return [dict create ok [dict get $measured ok] report [format "%s %s/%s (%s%%)" \
+        $node $shown [expr {$packets + $drops}] [dict get $measured rate]]]
 }
 
 # homa::lc::parse::netemLimitOk --

@@ -564,9 +564,8 @@ oo::class create ::homa::lc::Node {
         $table phase $id dmesg$suffix {
             set result [my run dmesg.log [dict get $timeouts command] dmesg]
             set out [dict get $result out]
-            set oops [parse oops $out]
-            my Report [lrange $oops 0 4]
-            set rc [expr {[llength $oops] ? 1 : [dict get $result rc]}]
+            my Report [lrange [parse oops $out] 0 4]
+            set rc [expr {[parse oopsCount $out] ? 1 : [dict get $result rc]}]
             list $rc "[llength [parse lines $out]] lines"
         }
     }
@@ -614,9 +613,8 @@ oo::class create ::homa::lc::Node {
     method serialLog {id} {
         $table phase $id serial-log$suffix {
             set text [slurp [file join $dir serial.log]]
-            set oops [parse oops $text]
             my Report [lrange [parse oops $text RIP:] 0 5]
-            list [expr {[llength $oops] > 0}] "[llength [parse lines $text]] lines"
+            list [expr {[parse oopsCount $text] > 0}] "[llength [parse lines $text]] lines"
         }
     }
 
