@@ -6,66 +6,7 @@
 
 source [file join [file dirname [info script]] helpers.tcl]
 
-# ---- Console protocol ------------------------------------------------------
-
-testTable wrap {
-    {"command gets a numbered end marker" positive
-        {{uname -r} 3} ok {uname -r; echo "HOMA_LC_""END 3 rc=$?"}}
-    {"the first command is number 1" boundary
-        {true 1} ok {true; echo "HOMA_LC_""END 1 rc=$?"}}
-    {"a compound command is wrapped as a whole" corner
-        {{a && b || c} 7} ok {a && b || c; echo "HOMA_LC_""END 7 rc=$?"}}
-    {"an id must be a positive integer" negative
-        {true 0} error {bad command id "0"}}
-    {"a non-numeric id is rejected" negative
-        {true x} error {bad command id "x"}}
-    {"a command on two lines is rejected" negative
-        "{true\nfalse} 1" error {command has more than one line}}
-    {"an empty command is rejected (the shell would see \"; echo\")" boundary
-        {{} 1} error {empty command}}
-    {"a blank command is rejected too" corner
-        {{  } 1} error {empty command}}
-} {parse wrap {*}$input}
-
-testTable marker {
-    {"our marker gives its rc" positive
-        {3 {HOMA_LC_END 3 rc=0}} ok 0}
-    {"a non-zero rc is returned as is" positive
-        {3 {HOMA_LC_END 3 rc=124}} ok 124}
-    {"a trailing CR is ignored" corner
-        "3 {HOMA_LC_END 3 rc=2\r}" ok 2}
-    {"a stale marker from an earlier command is not ours" negative
-        {3 {HOMA_LC_END 2 rc=0}} ok {}}
-    {"an id that only starts with ours is not ours" boundary
-        {3 {HOMA_LC_END 33 rc=0}} ok {}}
-    {"an id that only ends with ours is not ours" boundary
-        {3 {HOMA_LC_END 13 rc=0}} ok {}}
-    {"the shell's echo of the command does not match" corner
-        {3 {true; echo "HOMA_LC_""END 3 rc=$?"}} ok {}}
-    {"output before the marker on the same line is allowed" corner
-        {3 {no newline yetHOMA_LC_END 3 rc=1}} ok 1}
-    {"an empty line is not a marker" negative
-        {3 {}} ok {}}
-} {parse marker {*}$input}
-
-testTable stripMarker {
-    {"a line with no marker is unchanged" positive {plain output} ok {plain output}}
-    {"a marker alone leaves nothing" positive {HOMA_LC_END 3 rc=0} ok {}}
-    {"output before the marker is kept" corner {abcHOMA_LC_END 3 rc=0} ok abc}
-    {"a stale marker is removed too" positive {HOMA_LC_END 1 rc=124} ok {}}
-    {"the trailing CR goes with it" corner "HOMA_LC_END 3 rc=0\r" ok {}}
-    {"a CR on an ordinary line is removed" corner "x\r" ok x}
-    {"the shell's echo of a command is kept" corner
-        {true; echo "HOMA_LC_""END 3 rc=$?"} ok {true; echo "HOMA_LC_""END 3 rc=$?"}}
-    {"an empty line" boundary {} ok {}}
-} {parse stripMarker $input}
-
-testTable clean {
-    {"CRs are removed" positive "a\r\nb\r\n" ok "a\nb\n"}
-    {"text without CRs is unchanged" positive "a\nb" ok "a\nb"}
-    {"empty text" boundary {} ok {}}
-    {"a lone CR mid-line is removed too" corner "a\rb" ok ab}
-} {parse clean $input}
+# ---- Text ------------------------------------------------------------------
 
 testTable firstLine {
     {"first of several lines" positive "one\ntwo\n" ok one}

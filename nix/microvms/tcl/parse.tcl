@@ -1,9 +1,9 @@
 # parse.tcl --
 #
-#	Pure functions used by the lifecycle drivers: building console commands,
-#	recognising their end markers, and reading guest output (dmesg, tc,
-#	Homa's counters, cp_node's stats). Nothing here touches a console, a file
-#	or the clock, so tests/parse.test covers all of it with tables.
+#	Pure functions used by the lifecycle drivers: reading guest output
+#	(dmesg, tc, Homa's counters, cp_node's stats) and formatting results.
+#	Nothing here touches a console, a file or the clock, so tests/parse.test
+#	covers all of it with tables.
 #
 #	Every command is a subcommand of the ensemble homa::lc::parse, e.g.
 #	"parse field $line P99" after "namespace import homa::lc::parse".
@@ -14,7 +14,10 @@ namespace eval ::homa::lc {
     namespace export parse
 }
 namespace eval ::homa::lc::parse {
-    namespace export *
+    namespace export firstLine lastLine lines countLines verdict combine \
+        phaseLine tableRow firstKernelLine oops smokeDetail snap delta get \
+        deltaLine field positive trafficFailures netemSent dropRate \
+        netemLimitOk netemDetail matrixRow
     namespace ensemble create
 
     # Kernel messages that fail the dmesg and serial-log phases.
@@ -24,75 +27,7 @@ namespace eval ::homa::lc::parse {
     variable dash —
 }
 
-# ---- Console protocol ----------------------------------------------------------
-#
-# Each command sent to a guest's shell is followed by an echo of a numbered end
-# marker carrying the command's exit status. The marker is split by quotes in the
-# command itself, so a shell that echoes its input never prints a line that
-# matches. Output from an earlier command that timed out carries an older number
-# and is skipped.
-
-# homa::lc::parse::wrap --
-#
-#	Returns the line to send to the shell for one command.
-#
-# Arguments:
-#	cmd	the shell command, on one line: the shell would print a
-#		continuation prompt into the output for each further line.
-#	id	the command's number, a positive integer.
-
-proc ::homa::lc::parse::wrap {cmd id} {
-    if {![string is entier -strict $id] || $id < 1} {
-        return -code error "bad command id \"$id\""
-    }
-    if {[string trim $cmd] eq ""} {
-        return -code error "empty command"
-    }
-    if {[string first \n $cmd] >= 0} {
-        return -code error "command has more than one line"
-    }
-    return "$cmd; echo \"HOMA_LC_\"\"END $id rc=\$?\""
-}
-
-# homa::lc::parse::markerRe --
-#
-#	Returns a regular expression matching the end marker of command id; its
-#	first subexpression is the exit status.
-
-proc ::homa::lc::parse::markerRe {id} {
-    return "HOMA_LC_END $id rc=(\\d+)"
-}
-
-# homa::lc::parse::marker --
-#
-#	Returns the exit status if line carries command id's end marker, or an
-#	empty string if it does not.
-
-proc ::homa::lc::parse::marker {id line} {
-    if {[regexp -- [markerRe $id] $line -> rc]} {
-        return $rc
-    }
-    return {}
-}
-
-# homa::lc::parse::stripMarker --
-#
-#	Returns line without any end marker (ours or a stale one) and the
-#	carriage return a tty adds, leaving the output that came before it on
-#	the same line ("printf abc" prints no newline).
-
-proc ::homa::lc::parse::stripMarker {line} {
-    regsub {HOMA_LC_END \d+ rc=\d+} [string trimright $line \r] {} rest
-    return $rest
-}
-
-# homa::lc::parse::clean --
-#
-#	Removes the carriage returns a tty adds to each line.
-
-proc ::homa::lc::parse::clean {text} {
-    return [string map {\r {}} $text]
-}
+# ---- Text ------------------------------------------------------------------------
 
 # homa::lc::parse::firstLine --
 #
