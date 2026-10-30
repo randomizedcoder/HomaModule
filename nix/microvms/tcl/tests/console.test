@@ -1,0 +1,182 @@
+# console.test --
+#
+#	Table-driven tests for homa::lc::Console. A real bash shell behind a
+#	local socket stands in for the guest's hvc0 shell, so these exercise
+#	Expect's reading as well as the marker protocol. Every row is
+#	{description category input outcome expected}; see testTable in
+#	helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc::console
+
+# fakeGuest --
+#
+#	Starts a bash shell behind a listening socket and connects to it.
+#
+# Arguments:
+#	echo	if 1, each line sent is echoed back before bash reads it, like
+#		a tty before "stty -echo".
+#
+# Results:
+#	The connected channel, for homa::lc::Console.
+
+proc fakeGuest {{echo 0}} {
+    set server [socket -server [list acceptGuest $echo] -myaddr 127.0.0.1 0]
+    set chan [socket 127.0.0.1 [lindex [chan configure $server -sockname] 2]]
+    vwait ::guestUp
+    close $server
+    return $chan
+}
+
+# acceptGuest --
+#
+#	Accepts the connection from fakeGuest and joins it to a new bash, its
+#	stderr merged into stdout. When either side ends, both are closed.
+
+proc acceptGuest {echo sock addr port} {
+    set shell [open |[list bash --norc --noprofile 2>@1] r+]
+    foreach chan [list $sock $shell] {
+        chan configure $chan -blocking 0 -buffering none -translation binary
+    }
+    chan event $shell readable [list pump $shell $sock {} $sock $shell]
+    chan event $sock readable [list pump $sock $shell [expr {$echo ? $sock : ""}] $sock $shell]
+    set ::guestUp 1
+}
+
+# pump --
+#
+#	Copies what is ready from one channel to another, and to echo too if
+#	it is not empty. Closes both of the guest's channels at end of file.
+
+proc pump {from to echo sock shell} {
+    set data [read $from]
+    foreach chan [list $echo $to] {
+        if {$chan ne ""} {
+            puts -nonewline $chan $data
+        }
+    }
+    if {[eof $from]} {
+        foreach chan [list $sock $shell] {
+            catch {close $chan}
+        }
+    }
+}
+
+# show --
+#
+#	Formats one Console result for a table, with newlines and carriage
+#	returns visible.
+
+proc show {result} {
+    set out [string map {\n \\n \r \\r} [dict get $result out]]
+    return "rc=[dict get $result rc] out=$out"
+}
+
+# session --
+#
+#	Runs commands, a list of {command timeout}, in one fake guest and
+#	returns each result as formatted by show.
+
+proc session {commands {echo 0}} {
+    set console [homa::lc::Console new [fakeGuest $echo]]
+    try {
+        return [lmap step $commands {
+            show [$console run {*}$step]
+        }]
+    } finally {
+        $console destroy
+    }
+}
+
+testTable consoleRun {
+    {"one line of output" positive
+        {{{echo hi} 5}} ok {{rc=0 out=hi}}}
+    {"no output" positive
+        {{true 5}} ok {{rc=0 out=}}}
+    {"several lines" positive
+        {{{printf 'a\nb\n'} 5}} ok {{rc=0 out=a\nb}}}
+    {"a non-zero exit status" positive
+        {{false 5}} ok {{rc=1 out=}}}
+    {"an exit status with stderr output" positive
+        {{{echo oops >&2; (exit 3)} 5}} ok {{rc=3 out=oops}}}
+    {"commands share one shell" positive
+        {{{x=1} 5} {{echo $x} 5}} ok {{rc=0 out=} {rc=0 out=1}}}
+    {"a command that outlasts its timeout" negative
+        {{{sleep 2; echo late} 1}} ok {{rc=124 out=}}}
+    {"the next command skips a timed-out command's marker" corner
+        {{{sleep 2; echo late} 1} {{echo next} 5}}
+        ok {{rc=124 out=} {rc=0 out=late\nnext}}}
+    {"the shell exits" negative
+        {{{exit 0} 5}} ok {{rc=125 out=}}}
+    {"commands after the console closed" negative
+        {{{exit 0} 5} {{echo hi} 5}} ok {{rc=125 out=} {rc=125 out=}}}
+    {"CRLF line endings, as a tty sends" corner
+        {{{printf 'a\r\nb\r\n'} 5}} ok {{rc=0 out=a\nb}}}
+    {"output with no final newline" corner
+        {{{printf abc} 5}} ok {{rc=0 out=abc}}}
+    {"a line split across writes" corner
+        {{{printf ab; sleep 0.3; echo cd} 5}} ok {{rc=0 out=abcd}}}
+    {"blank lines are kept" corner
+        {{{printf 'a\n\nb\n'} 5}} ok {{rc=0 out=a\n\nb}}}
+    {"an exit status above 125" boundary
+        {{{(exit 255)} 5}} ok {{rc=255 out=}}}
+} {session $input}
+
+testTable consoleEcho {
+    {"the echoed command line is output, its marker is not matched" corner
+        {{{sleep 1; echo hi} 5}}
+        ok {{rc=0 out=sleep 1; echo hi; echo "HOMA_LC_""END 1 rc=$?"\nhi}}}
+} {session $input 1}
+
+# volume --
+#
+#	Runs one command in a fake guest whose console buffers at most matchMax
+#	bytes, and summarises its output.
+
+proc volume {cmd matchMax} {
+    set console [homa::lc::Console new [fakeGuest] $matchMax]
+    try {
+        set result [$console run $cmd 30]
+    } finally {
+        $console destroy
+    }
+    set lines [parse lines [dict get $result out]]
+    return [format "rc=%s lines=%d chars=%d last=%.10s" [dict get $result rc] \
+        [llength $lines] [string length [dict get $result out]] [lindex $lines end]]
+}
+
+testTable consoleVolume {
+    {"20000 lines" boundary
+        {{seq 20000} 65536} ok {rc=0 lines=20000 chars=108893 last=20000}}
+    {"a line five times Expect's buffer" corner
+        {{head -c 5000 /dev/zero | tr '\0' x; echo} 1000}
+        ok {rc=0 lines=1 chars=5000 last=xxxxxxxxxx}}
+    {"a line exactly Expect's buffer" boundary
+        {{head -c 1000 /dev/zero | tr '\0' y; echo} 1000}
+        ok {rc=0 lines=1 chars=1000 last=yyyyyyyyyy}}
+} {volume {*}$input}
+
+# sendThenRun --
+#
+#	Sends a line without waiting, then runs "echo $x" and sends again.
+#	Returns whether each send was written, and the command's result.
+
+proc sendThenRun {line} {
+    set console [homa::lc::Console new [fakeGuest]]
+    try {
+        set first [$console send $line]
+        set result [show [$console run {echo $x} 5]]
+        return "$first $result [$console send true] alive=[$console alive]"
+    } finally {
+        $console destroy
+    }
+}
+
+testTable consoleSend {
+    {"a line sent without waiting still runs" positive
+        {x=5} ok {1 rc=0 out=5 1 alive=1}}
+    {"after the shell exits, sends fail" negative
+        {exit} ok {1 rc=125 out= 0 alive=0}}
+} {sendThenRun $input}
+
+tcltest::cleanupTests

@@ -1,0 +1,97 @@
+# node.test --
+#
+#	Table-driven tests for homa::lc::Node: every phase a lifecycle test
+#	runs on a guest, against fakeqemu.tcl in place of QEMU. Every row is
+#	{description category input outcome expected}; see testTable in
+#	helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc
+
+set fakeQemu [file join [file dirname [file normalize [info script]]] fakeqemu.tcl]
+
+# freePort --
+#
+#	Returns a local TCP port that nothing is listening on.
+
+proc freePort {} {
+    set server [socket -server {apply {args {}}} -myaddr 127.0.0.1 0]
+    set port [lindex [chan configure $server -sockname] 2]
+    close $server
+    return $port
+}
+
+# script --
+#
+#	Writes an executable sh script.
+
+proc script {path body} {
+    homa::lc::spit $path "#!/bin/sh\n$body"
+    file attributes $path -permissions 0755
+}
+
+# bootNode --
+#
+#	Runs every Node phase, as homa-lifecycle does, on a fake guest.
+#
+# Arguments:
+#	mode	fakeqemu.tcl's mode, or missing for a runner that does not
+#		exist.
+#
+# Results:
+#	The phases' ids and verdicts, in order: {1 PASS 2 PASS ...}.
+
+proc bootNode {mode} {
+    set root [tcltest::makeDirectory work]
+    set bin [file join $root runner bin]
+    file mkdir $bin
+    set port [freePort]
+    if {$mode ne "missing"} {
+        script [file join $bin microvm-run] \
+            [list exec [info nameofexecutable] $::fakeQemu $port $mode $bin]
+    }
+    script [file join $bin poweroff] {kill "$FAKE_QEMU_PID"}
+    script [file join $bin dmesg] {
+echo '[    0.100000] homa: loaded'
+[ "$FAKE_MODE" = oops ] && echo '[    1.000000] WARNING: CPU: 0 PID: 1 at homa_fake'
+exit 0}
+    set config [dict create dir [file join $root vm] runner [file join $root runner] \
+        serial 1 virtio $port \
+        timeouts {start 2 serial 2 virtio 3 command 3 exit 3}]
+    set phaseTable [homa::lc::Table new]
+    set guest [homa::lc::Node new $phaseTable $config ""]
+    try {
+        lassign [quietly {
+            $guest start 1
+            $guest serial 2
+            $guest virtio 2b
+            $guest dmesg 5
+            $guest shutdown 6
+            $guest waitExit 7
+            $guest serialLog 8
+        }] - printed
+    } finally {
+        $guest destroy
+        $phaseTable destroy
+        tcltest::removeDirectory work
+    }
+    return [concat {*}[lmap {- id result} \
+        [regexp -all -inline -line {^  phase (\S+) \S+: (\w+)} $printed] {list $id $result}]]
+}
+
+testTable nodePhases {
+    {"a guest that boots, answers and powers off" positive ok ok
+        {1 PASS 2 PASS 2b PASS 5 PASS 6 PASS 7 PASS 8 PASS}}
+    {"a kernel BUG fails dmesg and serial-log only" negative oops ok
+        {1 PASS 2 PASS 2b PASS 5 FAIL 6 PASS 7 PASS 8 FAIL}}
+    {"no shell on hvc0: its phases skip, QEMU never exits" negative silent ok
+        {1 PASS 2 PASS 2b FAIL 5 SKIP 6 SKIP 7 FAIL 8 PASS}}
+    {"console port never listens" negative deaf ok
+        {1 FAIL 2 PASS 2b FAIL 5 SKIP 6 SKIP 7 FAIL 8 PASS}}
+    {"a runner that cannot start" corner missing ok
+        {1 FAIL 2 FAIL 2b FAIL 5 SKIP 6 SKIP 7 FAIL 8 PASS}}
+} {
+    bootNode $input
+}
+
+tcltest::cleanupTests

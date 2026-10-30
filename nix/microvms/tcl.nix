@@ -1,0 +1,110 @@
+# nix/microvms/tcl.nix
+#
+# Packages the Tcl/Expect drivers in tcl/ (see tcl/README.md):
+#
+#   mkTclApp { name, driver, config }   bin/<name>: runs tcl/bin/<driver> with config, an
+#                                       attribute set written out as JSON
+#   tests                               the tcltest suite under Tcl 8.6 (with Expect) and the
+#                                       pure tables under Tcl 9.0, plus nagelfar and tclint
+#
+# Expect is built for Tcl 8.6 in nixpkgs, so the drivers run on 8.6; the pure code
+# (parse.tcl) is kept Tcl 9 clean by running its tests there too.
+
+{ pkgs, lib }:
+
+let
+  tcl = pkgs.tcl;
+  tcllib = pkgs.tclPackages.tcllib;
+
+  # The package and drivers only: editing the tests or README does not change the apps.
+  src = lib.fileset.toSource {
+    root = ./tcl;
+    fileset = lib.fileset.unions [
+      ./tcl/pkgIndex.tcl
+      ./tcl/parse.tcl
+      ./tcl/console.tcl
+      ./tcl/lc.tcl
+      ./tcl/bin
+    ];
+  };
+
+  testSrc = lib.fileset.toSource {
+    root = ./tcl;
+    fileset = lib.fileset.unions [
+      (lib.fileset.fileFilter (f: f.hasExt "tcl" || f.hasExt "test") ./tcl)
+      ./tcl/tclint.toml
+    ];
+  };
+
+  # Where the drivers find their packages: ours, Expect and tcllib (json).
+  autoPath = [ "${src}" "${pkgs.expect}/lib" "${tcllib}/lib" ];
+
+  # nixpkgs' nagelfar has no syntax database; its source tarball does.
+  nagelfarDb = pkgs.runCommand "nagelfar-db" { } ''
+    mkdir -p $out
+    tar -xzf ${pkgs.nagelfar.src} --strip-components=1 -C $out \
+      --wildcards '*/syntaxdb86.tcl' '*/packagedb/tcltestdb.tcl'
+  '';
+in
+{
+  inherit src;
+
+  mkTclApp = { name, driver, config }:
+    let
+      configFile = pkgs.writeText "${name}.json" (builtins.toJSON config);
+    in
+    pkgs.writeTextFile {
+      inherit name;
+      executable = true;
+      destination = "/bin/${name}";
+      text = ''
+        #!${tcl}/bin/tclsh
+        # ${name}: runs ${driver} (nix/microvms/tcl/bin) with ${configFile}.
+        set env(PATH) ${lib.makeBinPath [ pkgs.coreutils ]}:$env(PATH)
+        set auto_path [list ${lib.concatStringsSep " " autoPath} {*}$auto_path]
+        package require homa::lc
+        set argv [list ${configFile} {*}$argv]
+        homa::lc::utf8 stdout
+        source ${src}/bin/${driver}
+      '';
+      checkPhase = ''
+        ${tcl}/bin/tclsh <<'EOF'
+        set auto_path [list ${lib.concatStringsSep " " autoPath} {*}$auto_path]
+        package require homa::lc
+        package require json
+        if {![info complete [read [open ${src}/bin/${driver}]]]} {
+            error "${driver}: incomplete script"
+        }
+        EOF
+      '';
+      meta.mainProgram = name;
+    };
+
+  tests = pkgs.runCommand "homa-tcl-tests"
+    {
+      nativeBuildInputs = [ tcl pkgs.bash pkgs.coreutils pkgs.nagelfar pkgs.tclint ];
+    } ''
+    export LANG=C.UTF-8
+    cp -r ${testSrc} tcl
+    chmod -R u+w tcl
+    cd tcl
+
+    echo "== nagelfar"
+    # homa.db describes our own commands and classes, generated from the loaded code.
+    TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/lintdb.tcl > homa.db
+    nagelfar -H -s ${nagelfarDb}/syntaxdb86.tcl -s ${nagelfarDb}/packagedb/tcltestdb.tcl -s homa.db \
+      pkgIndex.tcl parse.tcl console.tcl lc.tcl bin/*.tcl tests/*.tcl tests/*.test | tee nagelfar.out
+    if grep -E '^[^:]+: Line +[0-9]+: [EW] ' nagelfar.out; then exit 1; fi
+
+    echo "== tclint"
+    tclint .
+
+    echo "== tests, Tcl 8.6 with Expect"
+    TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/all.tcl
+
+    echo "== pure tests, Tcl 9.0"
+    ${pkgs.tcl-9_0}/bin/tclsh tests/all.tcl -file parse.test
+
+    touch $out
+  '';
+}
