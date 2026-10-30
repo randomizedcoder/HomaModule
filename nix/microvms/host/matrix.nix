@@ -13,11 +13,15 @@
 
 { lib
 , tclApps   # tcl.nix
+, echoRpcs  # constants.echoRpcs
 , tests     # list of { name, kernels, exe }: exe is a homa-microvm-test-* or homa-pair-test-* package
 }:
 
 tclApps.mkTclApp {
   name = "homa-vm-matrix";
   driver = "vm-matrix.tcl";
-  config.tests = map (t: { inherit (t) name kernels; exe = lib.getExe t.exe; }) tests;
+  config = {
+    inherit echoRpcs;
+    tests = map (t: { inherit (t) name kernels; exe = lib.getExe t.exe; }) tests;
+  };
 }

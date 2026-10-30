@@ -27,6 +27,7 @@
 , homaUtils
 , pair              # constants.pair
 , oopsRegex         # constants.oopsRegex
+, echoRpcs          # constants.echoRpcs
 , experiments ? null  # null, or a list of { name, proto, workload, gbps, sysctls }
 }:
 
@@ -77,8 +78,8 @@ let
     responses=$(timeout 30 demo_client1 "$peer" 4000 | grep -c '^Received response' || true)
     after=$(grep -E '^(packets_sent_DATA|packets_rcvd_GRANT) ' /proc/net/homa_metrics \
       | awk '{ s += $2 } END { print s + 0 }')
-    echo "HOMA_PAIR_ECHO responses=$responses (want 6) data+grant packets=$((after - before))"
-    [ "$responses" = 6 ] || fail ECHO
+    echo "HOMA_PAIR_ECHO responses=$responses (want ${toString echoRpcs}) data+grant packets=$((after - before))"
+    [ "$responses" = ${toString echoRpcs} ] || fail ECHO
     ok ECHO
 
     cp_node_run homa --first-port ${toString pair.cpNodeHomaPort} || fail CPNODE_HOMA

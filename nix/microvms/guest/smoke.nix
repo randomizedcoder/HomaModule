@@ -12,6 +12,7 @@
 
 { pkgs
 , oopsRegex # constants.oopsRegex
+, echoRpcs # constants.echoRpcs
 , homaKoPath
 , homaUtils
 , withSanitizers ? false
@@ -42,8 +43,8 @@ pkgs.writeShellApplication {
     responses=$(timeout 30 demo_client1 127.0.0.1 4000 | grep -c '^Received response' || true)
     kill "$server" 2>/dev/null || true
     wait "$server" 2>/dev/null || true
-    echo "HOMA_SMOKE_ECHO responses=$responses (want 6)"
-    [ "$responses" = 6 ] || fail ECHO
+    echo "HOMA_SMOKE_ECHO responses=$responses (want ${toString echoRpcs})"
+    [ "$responses" = ${toString echoRpcs} ] || fail ECHO
     ok ECHO
 
     # GRO + RPS: loopback skips GRO, so repeat the echo between two network namespaces over
@@ -90,9 +91,9 @@ pkgs.writeShellApplication {
     ip netns del homa-srv
     ip netns del homa-cli
 
-    echo "HOMA_SMOKE_GRO responses=$responses (want 6) homa_gro_receive calls=$gro_hits" \
+    echo "HOMA_SMOKE_GRO responses=$responses (want ${toString echoRpcs}) homa_gro_receive calls=$gro_hits" \
       "homa_set_softirq_cpu calls=$hits"
-    [ "$responses" = 6 ] || fail GRO
+    [ "$responses" = ${toString echoRpcs} ] || fail GRO
     [ "''${gro_hits:-0}" -gt 0 ] || fail GRO_NOT_USED
     [ "''${hits:-0}" -gt 0 ] || fail GRO_RPS
     ok GRO

@@ -15,6 +15,7 @@
 
 package require Tcl 8.6-
 package require homa::lc::parse
+package require homa::lc::report
 package require homa::lc::console
 
 namespace eval ::homa::lc {
@@ -264,7 +265,7 @@ oo::class create ::homa::lc::Table {
     variable rows failed
 
     constructor {} {
-        # Methods run in the object's namespace; find parse and spit.
+        # Methods run in the object's namespace; find report and spit.
         namespace path ::homa::lc
         set rows {}
         set failed 0
@@ -282,13 +283,13 @@ oo::class create ::homa::lc::Table {
     #	detail	a short note for the table.
 
     method record {id name rc start {detail {}}} {
-        set result [parse verdict $rc]
+        set result [report verdict $rc]
         if {$result eq "FAIL"} {
             incr failed
         }
         set ms [expr {[clock milliseconds] - $start}]
-        lappend rows [parse tableRow $id $name $result $ms $detail]
-        puts [parse phaseLine $id $name $result $ms $detail]
+        lappend rows [report tableRow $id $name $result $ms $detail]
+        puts [report phaseLine $id $name $result $ms $detail]
     }
 
     # skip --
@@ -337,7 +338,7 @@ oo::class create ::homa::lc::Table {
     method Outcome {result} {
         try {
             lassign $result rc detail
-            parse verdict $rc
+            report verdict $rc
             return [list $rc $detail]
         } on error {message} {
             return [list 1 "error: $message"]

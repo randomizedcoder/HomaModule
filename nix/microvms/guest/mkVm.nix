@@ -67,7 +67,7 @@ let
 
   smoke = import ./smoke.nix {
     inherit pkgs homaKoPath homaUtils withSanitizers;
-    inherit (constants) oopsRegex;
+    inherit (constants) oopsRegex echoRpcs;
   };
 
   pair = constants.pair;
@@ -75,7 +75,7 @@ let
   node = pair.nodes.${pairNode};
   pairScripts = import ./pair.nix {
     inherit pkgs lib homaKoPath homaUtils pair;
-    inherit (constants) oopsRegex;
+    inherit (constants) oopsRegex echoRpcs;
     experiments = pairExperiments;
   };
   testScript = if isPair then pairScripts.${pairNode} else smoke;

@@ -57,6 +57,7 @@ tclApps.mkTclApp {
     inherit label;
     inherit (lc) timeouts;
     inherit (lc.qdisc) pacedMbps;
+    inherit (constants) echoRpcs;
     peer = pair.nodes.server.ip;
     metrics = metrics.expMetrics;
     cpNode = {

@@ -8,7 +8,7 @@
 #                                       pure tables under Tcl 9.0, plus nagelfar and tclint
 #
 # Expect is built for Tcl 8.6 in nixpkgs, so the drivers run on 8.6; the pure code
-# (parse.tcl, protocol.tcl) is kept Tcl 9 clean by running its tests there too.
+# (parse.tcl, protocol.tcl, report.tcl) is kept Tcl 9 clean by running its tests there too.
 
 { pkgs, lib, oopsRegex }:
 
@@ -23,6 +23,7 @@ let
       ../tcl/pkgIndex.tcl
       ../tcl/parse.tcl
       ../tcl/protocol.tcl
+      ../tcl/report.tcl
       ../tcl/console.tcl
       ../tcl/lc.tcl
       ../tcl/bin
@@ -94,7 +95,7 @@ in
     # homa.db describes our own commands and classes, generated from the loaded code.
     TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/lintdb.tcl > homa.db
     nagelfar -H -s ${nagelfarDb}/syntaxdb86.tcl -s ${nagelfarDb}/packagedb/tcltestdb.tcl -s homa.db \
-      pkgIndex.tcl parse.tcl protocol.tcl console.tcl lc.tcl bin/*.tcl tests/*.tcl tests/*.test | tee nagelfar.out
+      pkgIndex.tcl parse.tcl protocol.tcl report.tcl console.tcl lc.tcl bin/*.tcl tests/*.tcl tests/*.test | tee nagelfar.out
     if grep -E '^[^:]+: (Line +)?[0-9]+: [EW] ' nagelfar.out; then exit 1; fi
 
     echo "== tclint"
@@ -113,7 +114,7 @@ in
     TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/all.tcl
 
     echo "== pure tests, Tcl 9.0"
-    ${pkgs.tcl-9_0}/bin/tclsh tests/all.tcl -file "parse.test protocol.test"
+    ${pkgs.tcl-9_0}/bin/tclsh tests/all.tcl -file "parse.test protocol.test report.test"
 
     touch $out
   '';
