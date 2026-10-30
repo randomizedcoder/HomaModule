@@ -12,8 +12,7 @@
 # `buildModule` is also reused by nix/microvms/ to build the .ko against the SAME
 # kernelPackages the guest boots (co-pinning avoids vermagic drift).
 #
-# Usage in flake.nix:
-#   modulePkgs = import ./nix/module.nix { inherit pkgs lib kernelConfig kernelSrc; src = homaSrc; };
+# Usage (nix/scope.nix calls this file with callPackage):
 #   modulePkgs.homa-module          # release .ko (default kernel)
 #   modulePkgs.homa-module-debug    # debug .ko
 #   modulePkgs.packages             # { homa-module, homa-module-debug, homa-module-<series>...,
@@ -30,13 +29,13 @@
 
 { pkgs
 , lib
+, homaLib
 , kernelConfig
 , kernelSrc
-, src
 }:
 
 let
-  version = "0-unstable-${lib.substring 0 8 (src.rev or "dirty")}";
+  inherit (homaLib) mkKbuild perKernel;
 
   buildModule = { kernelPackages, enableDebug ? false }:
     let
@@ -44,27 +43,14 @@ let
       modDirVersion = kernel.modDirVersion;
       myCflags = if enableDebug then "-g -O1 -fno-omit-frame-pointer" else "-O2";
     in
-    pkgs.stdenv.mkDerivation {
+    mkKbuild {
       pname = "homa-module${lib.optionalString enableDebug "-debug"}";
-      inherit version src;
-
-      nativeBuildInputs = [ pkgs.gnumake ] ++ kernel.moduleBuildDependencies;
-
-      # Sanitizers/FORTIFY from the cc-wrapper interfere with kbuild's own flags.
-      hardeningDisable = [ "all" ];
-
       # The top Makefile's default target `all` runs:
       #   $(MAKE) -C $(KDIR) M=$(shell pwd) modules
       # so we only need to point KDIR at this kernel's build tree.
-      makeFlags = [ "KDIR=${kernelConfig.kdirOf kernelPackages}" ];
-
-      # MY_CFLAGS (which the Makefile funnels into ccflags-y) is passed via the environment,
-      # NOT makeFlags: stdenv word-splits makeFlags, which would turn the debug value's `-O1`
-      # into make's own `-O` (output-sync) option. As an env var it reaches the kbuild
-      # sub-make intact.
+      kdir = kernelConfig.kdirOf kernelPackages;
+      nativeBuildInputs = kernel.moduleBuildDependencies;
       env.MY_CFLAGS = myCflags;
-
-      dontConfigure = true;
 
       installPhase = ''
         runHook preInstall
@@ -85,39 +71,32 @@ let
 
       passthru = { inherit kernelPackages modDirVersion enableDebug; };
 
-      meta = with lib; {
+      meta = homaLib.meta // {
         description = "Homa transport protocol Linux kernel module (homa.ko)"
-          + optionalString enableDebug " [debug]";
-        homepage = "https://github.com/PlatformLab/HomaModule";
-        license = licenses.bsd2;
-        platforms = platforms.linux;
+          + lib.optionalString enableDebug " [debug]";
       };
     };
 
-  homa-module = buildModule { inherit (kernelConfig) kernelPackages; enableDebug = false; };
+  homa-module = buildModule { inherit (kernelConfig) kernelPackages; };
   homa-module-debug = buildModule { inherit (kernelConfig) kernelPackages; enableDebug = true; };
 
   # Compile-test matrix: homa-module-<ver> against each available LTS kernel (fallback for
   # API drift on the newest kernel).
-  matrixPkgs = lib.mapAttrs'
-    (name: kp: lib.nameValuePair "homa-module-${name}"
-      (buildModule { kernelPackages = kp; enableDebug = false; }))
+  matrixPkgs = perKernel "homa-module"
+    (_: kp: buildModule { kernelPackages = kp; })
     kernelConfig.matrix;
 
   # Compile-only builds against kernels prepared from source (nix/kernel-src.nix). A cross
   # tree (cross.nix) brings its ARCH=/CROSS_COMPILE= flags and its cross gcc along.
   #   strip: build the upstream-shaped source (make __STRIP__=1)
   #   machine: if set, readelf must report this e_machine for homa.ko (e.g. "RISC-V")
-  buildAgainstTree = name: tree: { strip ? false, machine ? null }: pkgs.stdenv.mkDerivation {
+  buildAgainstTree = name: tree: { strip ? false, machine ? null }: mkKbuild {
     pname = "homa-module-${name}";
-    inherit version src;
-    nativeBuildInputs = [ pkgs.gnumake ] ++ tree.nativeBuildInputs;
+    kdir = "${tree}/build";
+    nativeBuildInputs = tree.nativeBuildInputs;
     buildInputs = tree.buildInputs;
-    hardeningDisable = [ "all" ];
-    dontConfigure = true;
-    makeFlags = [ "KDIR=${tree}/build" "KBUILD_MODPOST_WARN=1" ] ++ tree.makeFlags
+    makeFlags = [ "KBUILD_MODPOST_WARN=1" ] ++ tree.makeFlags
       ++ lib.optional strip "__STRIP__=1";
-    env.MY_CFLAGS = "-O2";
     # Keep the log, so homa-cross-matrix can count compiler warnings.
     buildPhase = ''
       runHook preBuild
@@ -134,8 +113,8 @@ let
     '';
     dontFixup = true;
   };
-  srcPkgs = lib.mapAttrs'
-    (name: tree: lib.nameValuePair "homa-module-${name}" (buildAgainstTree name tree { }))
+  srcPkgs = perKernel "homa-module"
+    (name: tree: buildAgainstTree name tree { })
     kernelSrc.trees;
 
   # Every kernel, one report. Each build runs in its own copy of the source; a failure is
@@ -146,21 +125,17 @@ let
     ++ lib.mapAttrsToList (n: t: { name = n; version = t.version; kdir = "${t}/build"; extra = "KBUILD_MODPOST_WARN=1"; })
       kernelSrc.trees;
 
-  homa-build-matrix = pkgs.stdenv.mkDerivation {
+  homa-build-matrix = mkKbuild {
     pname = "homa-build-matrix";
-    inherit version src;
-    nativeBuildInputs = [ pkgs.gnumake ]
-      ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies
+    nativeBuildInputs = kernelConfig.kernelPackages.kernel.moduleBuildDependencies
       ++ (with pkgs; [ elfutils openssl ]);
-    hardeningDisable = [ "all" ];
-    dontConfigure = true;
     buildPhase = ''
       mkdir -p "$out/logs"
       printf '| Kernel | Version | Result |\n|---|---|---|\n' > "$out/summary.md"
       fail=0
       ${lib.concatMapStrings (k: ''
         rm -rf "../w-${k.name}"; cp -r . "../w-${k.name}"; chmod -R u+w "../w-${k.name}"
-        if make -C "../w-${k.name}" KDIR=${k.kdir} ${k.extra} MY_CFLAGS=-O2 \
+        if make -C "../w-${k.name}" KDIR=${k.kdir} ${k.extra} \
             -j"$NIX_BUILD_CORES" > "$out/logs/${k.name}.log" 2>&1; then
           r=PASS
         else

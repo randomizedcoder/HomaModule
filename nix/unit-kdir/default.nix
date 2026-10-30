@@ -18,7 +18,7 @@
 # Nothing in the source tree is modified: everything is passed via KDIR= and CC=.
 #
 # Usage:
-#   unitKdir = import ./nix/unit-kdir { inherit pkgs lib kernelConfig; };
+#   unitKdir (in nix/scope.nix), used by userspace.nix and fuzz/tools/fuzz-mock.nix:
 #   make -C test KDIR=${unitKdir} CC="gcc ${unitKdir.extraCFlags}" unit
 
 { pkgs

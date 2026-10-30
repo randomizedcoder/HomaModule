@@ -4,23 +4,20 @@
 # corpus, reported with llvm-cov. Gives a concrete coverage number for the wire
 # (de)serialization decode logic. Kernel-free.
 
-{ pkgs, lib, src }:
+{ pkgs, mkFuzzDrv, compileHarness }:
 
-pkgs.stdenv.mkDerivation {
+mkFuzzDrv {
   pname = "homa-fuzz-cov";
-  version = "0";
-  inherit src;
   nativeBuildInputs = [ pkgs.clang pkgs.llvm ];
-  hardeningDisable = [ "all" ];
-  dontConfigure = true;
 
   buildPhase = ''
     runHook preBuild
-    H=nix/fuzz/harness
     mkdir -p "$out"
-    clang++ -std=c++17 -g -O1 -fsanitize=fuzzer,address,undefined \
-      -fprofile-instr-generate -fcoverage-mapping \
-      -I "$H" "$H/fuzz_dissector.cc" -o fuzz_dissector_cov
+    ${compileHarness {
+      name = "fuzz_dissector";
+      out = "fuzz_dissector_cov";
+      flags = "-fprofile-instr-generate -fcoverage-mapping";
+    }}
 
     work="$PWD/work"; mkdir -p "$work"
     cp nix/fuzz/corpus-seeds/dissector/* "$work/" 2>/dev/null || true
@@ -40,6 +37,5 @@ pkgs.stdenv.mkDerivation {
     runHook postBuild
   '';
 
-  installPhase = "true";
-  dontFixup = true;
+  dontInstall = true;
 }

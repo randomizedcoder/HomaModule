@@ -10,32 +10,35 @@
 # kernel-version sensitive; if it fails against the newest kernel that is recorded in
 # nix/STATUS.md and the static-analysis report (see docs/DESIGN.md §5).
 #
-# Usage in flake.nix:
-#   userspacePkgs = import ./nix/userspace.nix { inherit pkgs lib kernelConfig; src = self; };
+# nix/scope.nix calls this file with callPackage (and cross.nix from each cross package set).
 
 { pkgs
 , lib
-, kernelConfig
-, src
+, homaLib
+, unitKdir
 }:
 
 let
-  unitKdir = import ./unit-kdir { inherit pkgs lib kernelConfig; };
-  version = "0-unstable-${lib.substring 0 8 (src.rev or "dirty")}";
+  inherit (homaLib) version;
 
   # report = true (cross.nix) runs `make -k` and never fails: $out/report.md says which
   # util/ objects and programs built, with each failing file's first error.
   buildUtils = { debug ? false, report ? false }:
     pkgs.stdenv.mkDerivation {
       pname = "homa-utils${lib.optionalString debug "-debug"}${lib.optionalString report "-report"}";
-      inherit version src;
+      inherit version;
+      src = homaLib.src.util;
 
       nativeBuildInputs = [ pkgs.gnumake ];
       hardeningDisable = [ "all" ];
 
       # Inject debug/ASan without editing util/Makefile (the cc-wrapper honours these).
-      NIX_CFLAGS_COMPILE = lib.optionalString debug "-g -fno-omit-frame-pointer -fsanitize=address";
-      NIX_LDFLAGS = lib.optionalString debug "-fsanitize=address";
+      # NIX_CFLAGS_LINK, not NIX_LDFLAGS: these go to gcc when it links, NIX_LDFLAGS to ld,
+      # which rejects -fsanitize.
+      env = lib.optionalAttrs debug {
+        NIX_CFLAGS_COMPILE = "-g -fno-omit-frame-pointer -fsanitize=address";
+        NIX_CFLAGS_LINK = "-fsanitize=address";
+      };
 
       dontConfigure = true;
 
@@ -79,7 +82,8 @@ let
         runHook postBuild
       '';
 
-      installPhase = if report then "true" else ''
+      dontInstall = report;
+      installPhase = ''
         runHook preInstall
         mkdir -p "$out/bin"
         # Install every executable the Makefile produced under util/.
@@ -91,11 +95,9 @@ let
         runHook postInstall
       '';
 
-      meta = with lib; {
+      meta = homaLib.meta // {
         description = "Homa user-space test/benchmark tools (util/)"
-          + optionalString debug " [ASan]";
-        license = licenses.bsd2;
-        platforms = platforms.linux;
+          + lib.optionalString debug " [ASan]";
       };
     };
 
@@ -104,7 +106,8 @@ let
 
   homa-tests = pkgs.stdenv.mkDerivation {
     pname = "homa-tests";
-    inherit version src;
+    inherit version;
+    src = homaLib.src.test;
 
     # test/linux_objs (picks the vendored rbtree/rhashtable/xxhash for the kernel version)
     # is a #!/bin/bash script, which does not exist inside the build sandbox.
@@ -141,14 +144,12 @@ let
       runHook postInstall
     '';
 
-    meta = with lib; {
+    meta = homaLib.meta // {
       description = "Homa kselftest-style unit tests (built + run under AddressSanitizer)";
-      license = licenses.bsd2;
-      platforms = platforms.linux;
     };
   };
 in
 {
-  inherit buildUtils homa-utils homa-utils-debug homa-tests unitKdir;
+  inherit buildUtils homa-utils homa-utils-debug homa-tests;
   packages = { inherit homa-utils homa-utils-debug homa-tests; };
 }

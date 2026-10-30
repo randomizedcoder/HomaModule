@@ -222,7 +222,7 @@ nix build .#analysis-deep            # + sparse (endianness) + smatch
 nix build .#fuzz                     # standalone wire-decoder + selftest harnesses
 FUZZ_TIME=300 ./result/bin/run-fuzzers   #   ... run them for 5 minutes
 nix build .#fuzz-run                 # bounded run -> summary.txt / count.txt / crashes
-nix build .#fuzz-deep                # fork mode + dictionary + crash dedup
+nix run .#fuzz-deep -- [outdir]      # fork mode + dictionary (FUZZ_DEEP_TIME)
 nix build .#fuzz-cov                 # coverage of the wire decoder
 nix build .#fuzz-selftest            # canary gate (fails if the harness is vacuous)
 nix build .#fuzz-mock                # real Homa parsers against a kernel mock

@@ -10,7 +10,7 @@
 # Expect is built for Tcl 8.6 in nixpkgs, so the drivers run on 8.6; the pure code
 # (parse.tcl) is kept Tcl 9 clean by running its tests there too.
 
-{ pkgs, lib }:
+{ pkgs, lib, oopsRegex }:
 
 let
   tcl = pkgs.tcl;
@@ -98,6 +98,15 @@ in
 
     echo "== tclint"
     tclint .
+
+    echo "== parse.tcl's oops regex is constants.oopsRegex"
+    tclsh <<'EOF'
+    source parse.tcl
+    if {$homa::lc::parse::oopsRe ne {${oopsRegex}}} {
+        puts "parse.tcl: oopsRe is $homa::lc::parse::oopsRe, constants.nix has {${oopsRegex}}"
+        exit 1
+    }
+    EOF
 
     echo "== tests, Tcl 8.6 with Expect"
     TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/all.tcl

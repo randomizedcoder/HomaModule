@@ -49,7 +49,7 @@ nix/
     DESIGN.md                 # this file
   kernel.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
   kernel-src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
-  patches/                    # upstream-pending fixes applied to the Homa source (homaSrc)
+  patches/                    # upstream-pending fixes applied to the Homa source (homaLib.src)
   packages.nix                # nativeBuildInputs / buildInputs / devTools / pythonEnv / allPackages
   env-vars.nix                # shell env fragment (CC/CXX, KDIR, ARCH, PYTHON)
   module.nix                  # homa.ko derivation, enableDebug switch  -> homa-module[-debug|-<series>],
@@ -105,8 +105,9 @@ A single derivation module is instantiated twice via a boolean, mirroring xdp2's
 
 `kernel.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
 default `kernelPackages = pkgs.linuxPackages_latest` (7.3), overridable, because Homa is
-being ported forward to 7.x. Every derivation builds `homaSrc` rather than `self`:
-`nix/patches/` can carry an upstream-pending fix that the default kernel needs. It carried
+being ported forward to 7.x. Every derivation builds a subset of the source from
+`homaLib.src` (`nix/lib`) rather than `self`, with `nix/patches/` applied: they can carry
+an upstream-pending fix that the default kernel needs. It carried
 the 7.1 port (fork draft #12) until upstream landed it as `e65a5c0`, and is empty now. A
 patch that upstream has absorbed stops applying, which fails the build at patchPhase: that
 is the cue to delete it.
@@ -193,7 +194,8 @@ the easy first win (no kernel mock) and the oracle for `fuzz_differential`.
 statically vet the `__be16/__be32/__be64` handling in the same (de)serialization code.
 
 **Targets:** `fuzz` (build all), `fuzz-run` (bounded run → `summary.txt`/`count.txt`/
-symbolized `crashes/<h>/repro.txt`), `fuzz-deep` (fork-mode + dict + ASan-signature dedup),
+symbolized `crashes/<harness>/repro-<sig>.txt`, one per sanitizer signature), `fuzz-deep`
+(`nix run`: fork mode + dictionary, `FUZZ_DEEP_TIME`/`FORKS`/`MAXLEN`),
 `fuzz-cov` (llvm-cov replay, scoped to the wire functions), `fuzz-selftest` (injected-
 overflow canary gate). Runner honors `FUZZ_TIME`/`FUZZ_WORKDIR`.
 
