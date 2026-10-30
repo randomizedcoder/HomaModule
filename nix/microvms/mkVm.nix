@@ -65,13 +65,17 @@ let
   modVer = baseKernelPackages.kernel.modDirVersion;
   homaKoPath = "${homaKo}/lib/modules/${modVer}/homa.ko";
 
-  smoke = import ./smoke.nix { inherit pkgs homaKoPath homaUtils withSanitizers; };
+  smoke = import ./smoke.nix {
+    inherit pkgs homaKoPath homaUtils withSanitizers;
+    inherit (constants) oopsRegex;
+  };
 
   pair = constants.pair;
   isPair = pairNode != null;
   node = pair.nodes.${pairNode};
   pairScripts = import ./pair.nix {
     inherit pkgs lib homaKoPath homaUtils pair;
+    inherit (constants) oopsRegex;
     experiments = pairExperiments;
   };
   testScript = if isPair then pairScripts.${pairNode} else smoke;

@@ -14,18 +14,14 @@
 # <arch> is riscv64 or aarch64. The kernel trees take about 2 minutes each (modules_prepare,
 # no vmlinux), versus about 30 for a full cross kernel build.
 #
-# Usage in flake.nix:
-#   crossPkgs = import ./nix/cross.nix {
-#     inherit pkgs lib kernelConfig kernelSrc;
-#     src = homaSrc;
-#     buildAgainstTree = modulePkgs.buildAgainstTree;
-#   };
+# nix/scope.nix calls this file with callPackage, passing buildAgainstTree from module.nix.
 
 { pkgs
 , lib
 , kernelConfig
 , kernelSrc
-, src
+, homaLib
+, unitKdir
 , buildAgainstTree
 }:
 
@@ -52,10 +48,9 @@ let
       };
       module = buildAgainstTree name tree { inherit (t) machine; };
       moduleStrip = buildAgainstTree "${name}-strip" tree { inherit (t) machine; strip = true; };
-      userspace = import ./userspace.nix {
-        pkgs = t.cross;
-        inherit lib kernelConfig src;
-      };
+      # The same file as the native tools, called from the cross package set, so its
+      # stdenv is the cross one.
+      userspace = t.cross.callPackage ./userspace.nix { inherit homaLib unitKdir; };
       utils = userspace.homa-utils;
       utilsReport = userspace.buildUtils { report = true; };
     in

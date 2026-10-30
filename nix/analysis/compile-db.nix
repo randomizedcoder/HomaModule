@@ -8,23 +8,17 @@
 # Also records the build's source root ($out/srcroot) so clang-tidy can rewrite the DB's
 # absolute paths onto its own copy of the tree.
 
-{ pkgs, lib, src, kernelConfig }:
+{ pkgs, homaLib, kernelConfig }:
 
-pkgs.stdenv.mkDerivation {
+homaLib.mkKbuild {
   pname = "homa-compile-db";
-  version = "0";
-  inherit src;
-
-  nativeBuildInputs = [ pkgs.gnumake pkgs.bear ]
-    ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies;
-  hardeningDisable = [ "all" ];
-  dontConfigure = true;
+  kdir = kernelConfig.kdir;
+  nativeBuildInputs = [ pkgs.bear ] ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies;
 
   buildPhase = ''
     runHook preBuild
     echo "$PWD" > srcroot
-    bear --output compile_commands.json -- \
-      make KDIR=${kernelConfig.kdir} MY_CFLAGS='-O2' || true
+    bear --output compile_commands.json -- make $makeFlags || true
     runHook postBuild
   '';
 

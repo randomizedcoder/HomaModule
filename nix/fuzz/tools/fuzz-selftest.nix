@@ -5,22 +5,20 @@
 # aborts (via the fuzz_guard canary or ASan). If it does not, the harness/toolchain is
 # vacuous and this build fails. This is the one fuzz target that is a real pass/fail gate.
 
-{ pkgs, lib, src, sanFlags }:
+{ mkFuzzDrv, compileHarness }:
 
-pkgs.stdenv.mkDerivation {
+mkFuzzDrv {
   pname = "homa-fuzz-selftest";
-  version = "0";
-  inherit src;
-  nativeBuildInputs = [ pkgs.clang ];
-  hardeningDisable = [ "all" ];
-  dontConfigure = true;
 
   buildPhase = ''
     runHook preBuild
-    H=nix/fuzz/harness
     mkdir -p "$out"
     # Inject the regression: widen the copy to 32 bytes into an 8-byte buffer.
-    clang++ ${sanFlags} -DSELFTEST_COPY_LEN=32 -I "$H" "$H/fuzz_selftest.cc" -o selftest_broken
+    ${compileHarness {
+      name = "fuzz_selftest";
+      out = "selftest_broken";
+      flags = "-DSELFTEST_COPY_LEN=32";
+    }}
     head -c 32 /dev/zero | tr '\0' 'A' > overflow.bin
 
     set +e
@@ -41,6 +39,5 @@ pkgs.stdenv.mkDerivation {
     runHook postBuild
   '';
 
-  installPhase = "true";
-  dontFixup = true;
+  dontInstall = true;
 }

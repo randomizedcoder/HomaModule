@@ -40,7 +40,7 @@
 #   nix build .#fuzz                       # build all libFuzzer harnesses
 #   FUZZ_TIME=300 ./result/bin/run-fuzzers #   ... then run them for 5 min
 #   nix build .#fuzz-run                   # bounded run -> summary.txt / count.txt / crashes
-#   nix build .#fuzz-deep                  # fork-mode + dictionary + crash dedup
+#   nix run .#fuzz-deep -- [outdir]        # fork mode + dictionary (FUZZ_DEEP_TIME)
 #   nix build .#fuzz-cov                   # coverage of the wire (de)serialization functions
 #   nix build .#fuzz-selftest              # canary gate (fails if the harness is vacuous)
 #

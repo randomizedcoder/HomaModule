@@ -19,16 +19,12 @@
 # <series> is every kernel.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
 # default kernel. Tests share nothing on the host, so they can run in parallel.
 #
-# Usage in flake.nix:
-#   microvmPkgs = import ./nix/microvms {
-#     inherit pkgs lib microvm nixpkgs kernelConfig;
-#     buildSystem = system;
-#     buildModule = modulePkgs.buildModule;
-#     homaUtils = userspacePkgs.homa-utils;
-#   };
+# Called from nix/scope.nix. Host ports come from ports.nix, which fails evaluation if two
+# tests would bind the same one.
 
 { pkgs
 , lib
+, homaLib
 , microvm
 , nixpkgs
 , kernelConfig
@@ -39,15 +35,41 @@
 
 let
   constants = import ./constants.nix { inherit lib; };
-  tclApps = import ./tcl.nix { inherit pkgs lib; };
+  tclApps = import ./tcl.nix { inherit pkgs lib; inherit (constants) oopsRegex; };
   metrics = import ./metrics.nix { inherit pkgs lib; };
+
+  defaultKp = kernelConfig.kernelPackages;
+  vmSeries = lib.attrNames kernelConfig.vmMatrix;
+
+  # forKernels prefix f: prefix = f "default" <default kernel>, and prefix-<series> = f
+  # <series> <its kernel> for every vmMatrix entry.
+  forKernels = prefix: f:
+    { ${prefix} = f "default" defaultKp; } // homaLib.perKernel prefix f kernelConfig.vmMatrix;
+  labelOf = name: if name == "default" then "" else "-${name}";
+
+  # Every ordered (server, client) pair of VM kernels: same-kernel pairs and both directions
+  # of each mixed pair (wire compatibility between Homa builds for different kernels).
+  pairList = lib.concatMap (s: map (c: { server = s; client = c; }) vmSeries) vmSeries;
+  pairName = p: "${p.server}-${p.client}";
+
+  ports = import ./ports.nix {
+    inherit lib constants vmSeries;
+    linkNames =
+      [
+        { name = "pair-test"; link = "dgram"; }
+        { name = "pair-exp"; link = "dgram"; }
+        { name = "pair-exp-socket"; link = "socket"; }
+      ]
+      ++ map (n: { name = "pair-lifecycle-${n}"; link = "dgram"; }) ([ "default" ] ++ vmSeries)
+      ++ map (p: { name = "pair-test-${pairName p}"; link = "dgram"; }) pairList;
+  };
 
   mkGuest =
     { kernelPackages
     , withSanitizers ? false
     , autoTest ? false
     , pairNode ? null
-    , pairPort ? constants.pair.socketPortBase
+    , pairPort ? ports.link "pair-test"
     , pairExperiments ? null
     , pairLink ? "dgram"
     , consolePorts ? null
@@ -64,35 +86,30 @@ let
     runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
   };
 
-  # Lifecycle test; index picks the guest's console ports (constants.lifecycle).
-  mkLifecycle = { kernelPackages, label, index }:
-    let
-      base = constants.lifecycle.portBase + 2 * index;
-      consolePorts = { serial = base; virtio = base + 1; };
-    in
+  # Lifecycle test of the kernel called name ("default" or a series).
+  mkLifecycle = name: kernelPackages:
+    let consolePorts = ports.console name; in
     import ./lifecycle.nix {
-      inherit lib constants tclApps label consolePorts;
+      inherit lib constants tclApps consolePorts;
+      label = labelOf name;
       runner = mkGuest { inherit kernelPackages consolePorts; };
     };
 
   # Pair lifecycle (PLAN-pairs.md phase 4): both nodes on one kernel, driven over their
-  # consoles, with netem phases. index picks the console and link ports (constants.lifecycle).
-  mkPairLifecycle = { kernelPackages, label, index }:
+  # consoles, with netem phases.
+  mkPairLifecycle = name: kernelPackages:
     let
-      lc = constants.lifecycle;
-      base = lc.pairConsoleBase + 4 * index;
-      ports = {
-        node0 = { serial = base; virtio = base + 1; };
-        node1 = { serial = base + 2; virtio = base + 3; };
-      };
+      consoles = ports.pairConsoles name;
       node = pairNode: mkGuest {
         inherit kernelPackages pairNode;
-        pairPort = constants.pair.socketPortBase + lc.pairLinkOffset + index;
-        consolePorts = ports.${if pairNode == "server" then "node0" else "node1"};
+        pairPort = ports.link "pair-lifecycle-${name}";
+        consolePorts = consoles.${if pairNode == "server" then "node0" else "node1"};
       };
     in
     import ./pair-lifecycle.nix {
-      inherit lib constants tclApps metrics label ports;
+      inherit lib constants tclApps metrics;
+      label = labelOf name;
+      ports = consoles;
       serverRunner = node "server";
       clientRunner = node "client";
     };
@@ -137,22 +154,23 @@ let
       (tcp "w1-tcp" "w1")
     ];
 
-  # Every ordered (server, client) pair of VM kernels: same-kernel pairs and both directions
-  # of each mixed pair (wire compatibility between Homa builds for different kernels). Each
-  # gets its own socket-link port (base + 1, + 2, ...), so they can all run at once; the
-  # default homa-pair-test keeps the base port.
-  vmSeries = lib.attrNames kernelConfig.vmMatrix;
-  pairList = lib.concatMap (s: map (c: { server = s; client = c; }) vmSeries) vmSeries;
-  perPair = lib.listToAttrs (lib.imap1
-    (i: p: lib.nameValuePair "homa-pair-test-${p.server}-${p.client}" (mkPairTest {
+  perPair = lib.listToAttrs (map
+    (p: lib.nameValuePair "homa-pair-test-${pairName p}" (mkPairTest {
       serverKp = kernelConfig.vmMatrix.${p.server};
       clientKp = kernelConfig.vmMatrix.${p.client};
-      label = "-${p.server}-${p.client}";
-      port = constants.pair.socketPortBase + i;
+      label = "-${pairName p}";
+      port = ports.link "pair-test-${pairName p}";
     }))
     pairList);
 
-  defaultKp = kernelConfig.kernelPackages;
+  perKernel =
+    forKernels "homa-microvm" (_: kernelPackages: mkGuest { inherit kernelPackages; })
+    // forKernels "homa-microvm-test" (name: kernelPackages: mkTest {
+      inherit kernelPackages;
+      label = labelOf name;
+    })
+    // forKernels "homa-lifecycle" mkLifecycle
+    // forKernels "homa-pair-lifecycle" mkPairLifecycle;
 
   # homa-vm-matrix: every per-kernel smoke, lifecycle and pair lifecycle test and every
   # pair, in parallel.
@@ -169,30 +187,16 @@ let
         vmSeries
       ++ map
         (p: {
-          name = "homa-pair-test-${p.server}-${p.client}";
+          name = "homa-pair-test-${pairName p}";
           kernels = "${p.server} → ${p.client}";
-          exe = perPair."homa-pair-test-${p.server}-${p.client}";
+          exe = perPair."homa-pair-test-${pairName p}";
         })
         pairList;
   };
-
-  perKernel = lib.foldl' (a: b: a // b) { } (lib.imap1
-    (i: s:
-      let kp = kernelConfig.vmMatrix.${s}; in {
-        "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
-        "homa-microvm-test-${s}" = mkTest { kernelPackages = kp; label = "-${s}"; };
-        "homa-lifecycle-${s}" = mkLifecycle { kernelPackages = kp; label = "-${s}"; index = i; };
-        "homa-pair-lifecycle-${s}" = mkPairLifecycle { kernelPackages = kp; label = "-${s}"; index = i; };
-      })
-    vmSeries);
 in
 {
   packages = {
-    homa-microvm = mkGuest { kernelPackages = defaultKp; };
     homa-microvm-debug = mkGuest { kernelPackages = defaultKp; withSanitizers = true; };
-    homa-microvm-test = mkTest { kernelPackages = defaultKp; label = ""; };
-    homa-lifecycle = mkLifecycle { kernelPackages = defaultKp; label = ""; index = 0; };
-    homa-pair-lifecycle = mkPairLifecycle { kernelPackages = defaultKp; label = ""; index = 0; };
     homa-microvm-test-debug = mkTest {
       kernelPackages = defaultKp;
       label = "-debug";
@@ -202,13 +206,13 @@ in
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "";
-      port = constants.pair.socketPortBase;
+      port = ports.link "pair-test";
     };
     homa-pair-exp = mkPairTest {
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "-exp";
-      port = constants.pair.socketPortBase + 50;
+      port = ports.link "pair-exp";
       experiments = latencyExperiments;
     };
     # The same sweep over QEMU's TCP stream backend, which adds the multi-millisecond
@@ -217,7 +221,7 @@ in
       serverKp = defaultKp;
       clientKp = defaultKp;
       label = "-exp-socket";
-      port = constants.pair.socketPortBase + 60;
+      port = ports.link "pair-exp-socket";
       experiments = latencyExperiments;
       link = "socket";
     };

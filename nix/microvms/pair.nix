@@ -26,6 +26,7 @@
 , homaKoPath
 , homaUtils
 , pair              # constants.pair
+, oopsRegex         # constants.oopsRegex
 , experiments ? null  # null, or a list of { name, proto, workload, gbps, sysctls }
 }:
 
@@ -41,7 +42,7 @@ let
   common = ''
     ok() { echo "''${PFX}_$1_OK"; }
     dmesg_gate() {
-      if dmesg | grep -qE 'BUG:|Oops|WARNING:.*homa|general protection'; then
+      if dmesg | grep -qE '${oopsRegex}'; then
         dmesg | tail -n 40
         return 1
       fi

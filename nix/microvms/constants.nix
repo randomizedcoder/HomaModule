@@ -18,11 +18,15 @@
   bootTimeout = 300;
   bootTimeoutDebug = 1200; # KASAN guests boot slowly
 
+  # A kernel oops, warning or sanitizer report in dmesg: every dmesg check uses this, in the
+  # guests (smoke.nix, pair.nix) and on the host (tcl/parse.tcl, whose copy the tcl-tests
+  # check compares with this one).
+  oopsRegex = "BUG:|Oops|WARNING:|KASAN|UBSAN|general protection fault|list_add corruption";
+
   stateVersion = "24.11";
 
-  # Lifecycle test (lifecycle.nix, pcp pattern): per-phase timeouts in seconds, and the host
-  # TCP ports of each guest's consoles, serial (ttyS0) = portBase + 2i and virtio (hvc0) =
-  # portBase + 2i + 1, where i is 0 for the default kernel and 1, 2, ... per vmMatrix entry.
+  # Lifecycle test (lifecycle.nix, pcp pattern): per-phase timeouts in seconds, and where
+  # ports.nix starts the guests' console ports.
   lifecycle = {
     portBase = 24700;
     timeouts = {
@@ -37,11 +41,8 @@
     };
     moduleCycles = 5;
 
-    # Pair lifecycle (pair-lifecycle.nix): pair j's consoles are pairConsoleBase + 4j ..
-    # + 4j + 3 (node0 serial, virtio, node1 serial, virtio) and its link is
-    # pair.socketPortBase + pairLinkOffset + j.
+    # Pair lifecycle (pair-lifecycle.nix): four console ports per pair, from here on.
     pairConsoleBase = 24800;
-    pairLinkOffset = 200;
 
     # Link impairment phases: tc netem on eth1 of both nodes (so both directions), each
     # followed by echo, cp_node Homa and cp_node TCP. loss is a percentage (a string, as tc
@@ -76,7 +77,7 @@
       client = { hostname = "node1"; ip = "10.88.0.2"; mac = "52:54:00:88:00:02"; role = "connect"; };
     };
     prefixLength = 24;
-    socketPortBase = 23700; # host 127.0.0.1 port for the pair link; +N per pair target
+    socketPortBase = 23700; # host 127.0.0.1 ports for pair links start here (ports.nix)
     dgramPortOffset = 1000; # "dgram" link: node0 binds the pair's port, node1 this much higher
 
     # Guest TCP ports for coordination (not Homa traffic).

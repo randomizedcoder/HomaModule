@@ -15,10 +15,9 @@
 { pkgs, inputs }:
 
 pkgs.lib.makeScope pkgs.newScope (self: {
-  # Homa's source with any forward-port patches in patches/ applied (currently none).
-  # Every derivation builds this, not the flake's own tree. Files take it as `src`,
-  # passed explicitly: nixpkgs has a package named src, which callPackage would pick.
-  homaSrc = self.callPackage ./patches { src = inputs.self; };
+  # homaLib (lib/): version, meta, the source subsets with patches/ applied, mkKbuild,
+  # perKernel. The version comes from the flake's git revision.
+  homaLib = self.callPackage ./lib { rev = inputs.self.rev or "dirty"; };
 
   # Foundation: the kernels, kernel trees from source, tool lists, dev environment.
   kernelConfig = self.callPackage ./kernel.nix { };
@@ -29,19 +28,20 @@ pkgs.lib.makeScope pkgs.newScope (self: {
   inherit (self.packagesModule) pythonEnv;
   envVars = self.callPackage ./env-vars.nix { };
   shellFunctions = self.callPackage ./shell-functions { };
+  # The merged kernel tree that the unit tests and the mock fuzzers build against.
+  unitKdir = self.callPackage ./unit-kdir { };
 
   # Each of these returns { packages, checks?, ... } for a part in parts/.
-  modulePkgs = self.callPackage ./module.nix { src = self.homaSrc; };
+  modulePkgs = self.callPackage ./module.nix { };
   crossPkgs = self.callPackage ./cross.nix {
-    src = self.homaSrc;
     inherit (self.modulePkgs) buildAgainstTree;
   };
-  userspacePkgs = self.callPackage ./userspace.nix { src = self.homaSrc; };
+  userspacePkgs = self.callPackage ./userspace.nix { };
   ociPkgs = self.callPackage ./oci.nix {
     inherit (self.userspacePkgs) homa-utils homa-utils-debug;
   };
-  analysisPkgs = self.callPackage ./analysis { src = self.homaSrc; };
-  fuzzPkgs = self.callPackage ./fuzz { src = self.homaSrc; };
+  analysisPkgs = self.callPackage ./analysis { };
+  fuzzPkgs = self.callPackage ./fuzz { };
   microvmPkgs = self.callPackage ./microvms {
     inherit (inputs) microvm nixpkgs;
     buildSystem = pkgs.stdenv.hostPlatform.system;

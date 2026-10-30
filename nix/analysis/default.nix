@@ -1,33 +1,70 @@
 # nix/analysis/default.nix
 #
-# Tiered static analysis (xdp2/rocm pattern). Each tool module is a derivation that writes
-# $out/report.txt + $out/count.txt; the tier targets link those together and emit a
+# Tiered static analysis (xdp2/rocm pattern). Each tool is one mkAnalysisTool call (below)
+# that writes $out/report.txt and $out/count.txt; the tier targets gather those into one
 # summary.txt with per-tool finding counts.
 #
 #   analysis-quick     python (ruff) + shell (shellcheck/shfmt) + clang-format   (no kernel)
 #   analysis-standard  + cppcheck + clang-tidy (compile DB)
 #   analysis-deep      + sparse (endianness) + smatch
 #
-# Per-tool packages are also exposed (analysis-ruff, analysis-cppcheck, ...).
-#
-# Usage in flake.nix:
-#   analysisPkgs = import ./nix/analysis { inherit pkgs lib kernelConfig; src = self; };
+# Per-tool packages are also exposed (analysis-ruff, analysis-cppcheck, ...). nix/scope.nix
+# calls this file with callPackage; each tool file is called the same way, and gets
+# mkAnalysisTool.
 
 { pkgs
 , lib
+, homaLib
 , kernelConfig
-, src
 }:
 
 let
-  python = import ./python.nix { inherit pkgs lib src; };
-  shell = import ./shell.nix { inherit pkgs lib src; };
-  clang-format = import ./clang-format.nix { inherit pkgs lib src; };
-  cppcheck = import ./cppcheck.nix { inherit pkgs lib src; };
-  compile-db = import ./compile-db.nix { inherit pkgs lib src kernelConfig; };
-  clang-tidy = import ./clang-tidy.nix { inherit pkgs lib src compile-db; };
-  sparse = import ./sparse.nix { inherit pkgs lib src kernelConfig; };
-  smatch = import ./smatch.nix { inherit pkgs lib src kernelConfig; };
+  # mkAnalysisTool { name, tools, script, count, src?, kbuild? }: copies the source (by
+  # default Homa's module sources), runs script, which writes "$out/report.txt", then
+  # writes into count.txt how many report lines match the extended regex count.
+  # kbuild = true adds what a build against the default kernel needs, a C compiler
+  # included (runCommandCC; plain runCommand has none).
+  mkAnalysisTool = { name, tools, script, count, src ? homaLib.src.module, kbuild ? false }:
+    (if kbuild then pkgs.runCommandCC else pkgs.runCommand) "homa-analysis-${name}"
+      {
+        nativeBuildInputs = with pkgs; [ coreutils findutils gnugrep gnused ] ++ tools
+          ++ lib.optionals kbuild
+          ([ pkgs.gnumake ] ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies);
+        hardeningDisable = lib.optional kbuild "all";
+      } ''
+      cp -r ${src} src && chmod -R +w src && cd src
+      mkdir -p "$out"
+      ${script}
+      count=$(grep -cE '${count}' "$out/report.txt" || true)
+      echo "''${count:-0}" > "$out/count.txt"
+    '';
+
+  # callPackageWith: like callPackage, with these added to what a file can name.
+  call = lib.callPackageWith (pkgs // { inherit homaLib kernelConfig mkAnalysisTool; });
+  kbuildCheck = call ./kbuild-check.nix { };
+
+  python = call ./python.nix { };
+  shell = call ./shell.nix { };
+  clang-format = call ./clang-format.nix { };
+  cppcheck = call ./cppcheck.nix { };
+  compile-db = call ./compile-db.nix { };
+  clang-tidy = call ./clang-tidy.nix { inherit compile-db; };
+  # sparse: the kernel's own semantic checker, with endianness checks on. It flags
+  # mismatched __be16/__be32/__be64 handling and __force casts in the wire code, which
+  # fuzzing can miss.
+  sparse = kbuildCheck {
+    name = "sparse";
+    checker = "${pkgs.sparse}/bin/sparse";
+    flags = "-D__CHECK_ENDIAN__ -Wsparse-all";
+    count = ":[0-9]+:[0-9]+: (warning|error):";
+  };
+  # smatch: kernel-oriented flow analysis, when nixpkgs has it.
+  smatch = kbuildCheck {
+    name = "smatch";
+    checker = "${pkgs.smatch}/bin/smatch -p=kernel";
+    count = ":[0-9]+:[0-9]+: (warn|error):";
+  };
+  hasSmatch = pkgs ? smatch;
 
   # A tier is a runCommand that gathers named tool reports into one directory + summary.
   mkTier = tierName: tools:
@@ -67,7 +104,7 @@ let
   ];
   deepTools = standardTools ++ [
     { name = "sparse"; drv = sparse; }
-  ] ++ lib.optional (pkgs ? smatch) { name = "smatch"; drv = smatch; };
+  ] ++ lib.optional hasSmatch { name = "smatch"; drv = smatch; };
 
   analysis-quick = mkTier "analysis-quick" quickTools;
   analysis-standard = mkTier "analysis-standard" standardTools;
@@ -83,7 +120,7 @@ in
     analysis-clang-tidy = clang-tidy;
     analysis-compile-db = compile-db;
     analysis-sparse = sparse;
-  } // lib.optionalAttrs (pkgs ? smatch) { analysis-smatch = smatch; };
+  } // lib.optionalAttrs hasSmatch { analysis-smatch = smatch; };
 
   # `analysis-quick` is kernel-independent, so it makes a good `nix flake check` gate.
   checks = { inherit analysis-quick; };

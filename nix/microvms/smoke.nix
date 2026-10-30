@@ -11,6 +11,7 @@
 #   (sanitizers: kmemleak scan + KASAN gate) -> rmmod
 
 { pkgs
+, oopsRegex # constants.oopsRegex
 , homaKoPath
 , homaUtils
 , withSanitizers ? false
@@ -108,7 +109,7 @@ pkgs.writeShellApplication {
     rmmod homa || fail RMMOD
     ok RMMOD
 
-    if dmesg | grep -qE 'BUG:|Oops|WARNING:.*homa'; then
+    if dmesg | grep -qE '${oopsRegex}'; then
       fail DMESG
     fi
     ok DMESG
