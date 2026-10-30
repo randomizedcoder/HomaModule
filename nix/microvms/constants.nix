@@ -20,6 +20,23 @@
 
   stateVersion = "24.11";
 
+  # Lifecycle test (lifecycle.nix, pcp pattern): per-phase timeouts in seconds, and the host
+  # TCP ports of each guest's consoles, serial (ttyS0) = portBase + 2i and virtio (hvc0) =
+  # portBase + 2i + 1, where i is 0 for the default kernel and 1, 2, ... per vmMatrix entry.
+  lifecycle = {
+    portBase = 24700;
+    timeouts = {
+      start = 10; # qemu up and its console ports listening
+      serial = 30; # first kernel line in serial.log
+      virtio = 120; # a root shell answering on hvc0 (full boot)
+      smoke = 180; # homa-smoke (smoke.nix), run over hvc0
+      cycles = 90; # insmod / netns add+del / rmmod, several times
+      command = 30; # any other single command
+      exit = 60; # poweroff until qemu exits
+    };
+    moduleCycles = 5;
+  };
+
   # Two-VM pair test (pair.nix, lib-pair.nix; uds-rdma-proxy pattern). The guests share a
   # private L2 link on eth1: a QEMU "dgram" (UDP) netdev between two host ports, so no
   # root, tap or bridge is needed ("socket", a TCP stream, is kept for comparison; see

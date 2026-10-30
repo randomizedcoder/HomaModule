@@ -15,6 +15,10 @@
 #
 # kernelPackages selects the guest kernel (one VM per kernel.nix matrix entry, xtcp2-style).
 #
+# consolePorts = { serial; virtio; } makes the lifecycle guest (lifecycle.nix, pcp pattern):
+# ttyS0 on a TCP port and logged to ./serial.log from the first byte, and a virtio console
+# (hvc0, a root shell) on a second port for fast host-driven commands.
+#
 # pairNode = "server" | "client" makes the guest one half of the two-VM pair test: a second
 # NIC (eth1) on a QEMU socket link to the other guest, a static IP, cp_node's node<N>
 # hostnames, and pair.nix's script in place of the smoke test.
@@ -35,6 +39,7 @@
 , pairPort            # host port of the socket link (unique per pair)
 , pairExperiments ? null  # sweep list for the client (pair.nix); null = normal pair test
 , pairLink ? "dgram"      # QEMU backend for eth1: "dgram" (UDP) | "socket" (TCP stream)
+, consolePorts ? null     # { serial; virtio; }: lifecycle guest consoles on host TCP ports
 }:
 
 let
@@ -71,6 +76,7 @@ let
   };
   testScript = if isPair then pairScripts.${pairNode} else smoke;
   testExe = lib.getExe testScript;
+  isLifecycle = consolePorts != null;
 
   guest = nixpkgs.lib.nixosSystem {
     system = buildSystem;
@@ -114,11 +120,28 @@ let
             mac = "52:54:00:00:00:01";
           }];
 
+          # Lifecycle consoles. ttyS0 stays the only kernel console, so hvc0 carries just
+          # the shell (no printk lines in command output) and serial.log has everything,
+          # including oopses after the shell is gone. Both are servers with wait=off, and
+          # serial.log is relative to qemu's working directory.
+          qemu.serialConsole = !isLifecycle;
+          qemu.extraArgs = lib.optionals isLifecycle [
+            "-chardev"
+            "socket,id=ser0,host=127.0.0.1,port=${toString consolePorts.serial},server=on,wait=off,logfile=serial.log"
+            "-serial"
+            "chardev:ser0"
+            "-device"
+            "virtio-serial-pci"
+            "-chardev"
+            "socket,id=con0,host=127.0.0.1,port=${toString consolePorts.virtio},server=on,wait=off"
+            "-device"
+            "virtconsole,chardev=con0"
+          ]
           # Pair link (eth1), point to point. "dgram": UDP between pairPort (node0) and
           # pairPort + dgramPortOffset (node1). "socket": a TCP stream that node0 listens on
           # and node1 connects to; it delays packets by milliseconds (STATUS.md F2), so it is
           # kept only for comparison.
-          qemu.extraArgs = lib.optionals isPair [
+          ++ lib.optionals isPair [
             "-netdev"
             (if pairLink == "dgram" then
               let
@@ -127,7 +150,7 @@ let
                 remote = pairPort + offset "server";
               in
               "dgram,id=homapair,local.type=inet,local.host=127.0.0.1,local.port=${toString local}"
-              + ",remote.type=inet,remote.host=127.0.0.1,remote.port=${toString remote}"
+                + ",remote.type=inet,remote.host=127.0.0.1,remote.port=${toString remote}"
             else
               "socket,id=homapair,${node.role}=127.0.0.1:${toString pairPort}")
             "-device"
