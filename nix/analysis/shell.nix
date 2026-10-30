@@ -11,7 +11,9 @@ mkAnalysisTool {
   tools = [ pkgs.shellcheck pkgs.shfmt ];
   src = homaLib.src.all;
   script = ''
-    grep -rlE '^#!.*(bash|/bin/sh|env sh)' . 2>/dev/null | sort -u > "$out/files.txt"
+    # The shebang must be the first line (grep -l would match a "#!" on any line).
+    find . -type f -exec awk 'FNR == 1 && /^#!.*(bash|\/bin\/sh|env sh)/ { print FILENAME }
+      { nextfile }' {} + | sort -u > "$out/files.txt"
     mapfile -t shfiles < "$out/files.txt"
     {
       echo "# shellcheck ($(wc -l < "$out/files.txt") files)"

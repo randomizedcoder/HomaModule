@@ -54,14 +54,16 @@ let
 
   # A derivation over the fuzz sources, built with clang and no hardening flags (they clash
   # with the sanitizers).
+  # A fuzz derivation: clang, then args' own nativeBuildInputs.
   mkFuzzDrv = args: pkgs.stdenv.mkDerivation ({
     version = "0";
     inherit src;
-    nativeBuildInputs = [ pkgs.clang ];
     hardeningDisable = [ "all" ];
     dontConfigure = true;
     dontFixup = true;
-  } // args);
+  } // args // {
+    nativeBuildInputs = [ pkgs.clang ] ++ args.nativeBuildInputs or [ ];
+  });
 
   # callPackageWith: like callPackage, with these added to what a file can name.
   call = file: lib.callPackageWith (pkgs // { inherit mkFuzzDrv compileHarness launcher unitKdir; })

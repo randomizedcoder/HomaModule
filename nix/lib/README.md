@@ -10,7 +10,7 @@
 | `src.util`, `src.test` | the same, plus `util/` (and `test/`) |
 | `src.fuzz` | plus `util/`, `test/` and `nix/fuzz/` |
 | `src.all` | the whole tree, for the linters |
-| `version`, `meta`, `rev` | for every Homa derivation; `rev` is the flake's git revision |
+| `version`, `meta` | for every Homa derivation |
 | `mkKbuild { kdir, makeFlags, ... }` | a derivation that runs Homa's Makefile against a kernel tree |
 | `perKernel prefix f set` | `{ "<prefix>-<series>" = f series value; }` for a set keyed by kernel series |
 

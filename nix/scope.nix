@@ -16,8 +16,8 @@
 
 pkgs.lib.makeScope pkgs.newScope (self: {
   # homaLib (lib/): version, meta, the source subsets with patches/ applied, mkKbuild,
-  # perKernel. The version comes from the flake's git revision.
-  homaLib = self.callPackage ./lib { rev = inputs.self.rev or "dirty"; };
+  # perKernel.
+  homaLib = self.callPackage ./lib { };
 
   # Foundation: the kernels, kernel trees from source, tool lists, dev environment.
   kernelConfig = self.callPackage ./kernel/config.nix { };

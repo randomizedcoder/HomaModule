@@ -24,11 +24,10 @@ let
 in
 mkFuzzDrv {
   pname = "homa-fuzzers-mock";
-  nativeBuildInputs = [ pkgs.clang pkgs.llvmPackages.compiler-rt pkgs.python3 pkgs.bash ];
+  nativeBuildInputs = [ pkgs.llvmPackages.compiler-rt pkgs.python3 ];
 
   buildPhase = ''
     runHook preBuild
-    patchShebangs test/linux_objs
     CC=clang CXX=clang++ JOBS=$NIX_BUILD_CORES \
       bash nix/fuzz/tools/build-mock-fuzzers.sh . ${unitKdir} out "${unitKdir.extraCFlags}"
     python3 nix/fuzz/tools/gen-mock-seeds.py out/corpus

@@ -74,15 +74,13 @@ let
     , pairLink ? "dgram"
     , consolePorts ? null
     }: import ./guest/mkVm.nix {
-      inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
+      inherit pkgs lib microvm nixpkgs buildSystem constants buildModule homaUtils
         kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink
         consolePorts;
-      homaModule = buildModule { inherit kernelPackages; };
-      homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
     };
 
   mkTest = { kernelPackages, label, withSanitizers ? false }: import ./host/smoke-test.nix {
-    inherit pkgs lib constants label withSanitizers;
+    inherit pkgs constants label withSanitizers;
     runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
   };
 
@@ -90,7 +88,7 @@ let
   mkLifecycle = name: kernelPackages:
     let consolePorts = ports.console name; in
     import ./host/lifecycle.nix {
-      inherit lib constants tclApps consolePorts;
+      inherit constants tclApps consolePorts;
       label = labelOf name;
       runner = mkGuest { inherit kernelPackages consolePorts; };
     };
@@ -116,7 +114,7 @@ let
 
   # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
   mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./host/pair-test.nix {
-    inherit pkgs lib constants label port link;
+    inherit pkgs constants label port link;
     serverRunner = mkGuest {
       kernelPackages = serverKp;
       autoTest = true;

@@ -12,8 +12,9 @@ mkAnalysisTool {
   src = homaLib.src.all;
   script = ''
     export RUFF_CACHE_DIR="$TMPDIR/ruff"
-    { grep -rlE '^#!.*python' . 2>/dev/null || true; find . -name '*.py' 2>/dev/null || true; } \
-      | sort -u > "$out/files.txt"
+    # A shebang must be the first line (grep -l would match a "#!" on any line).
+    { find . -type f -exec awk 'FNR == 1 && /^#!.*python/ { print FILENAME } { nextfile }' {} +
+      find . -name '*.py'; } | sort -u > "$out/files.txt"
     mapfile -t pyfiles < "$out/files.txt"
     {
       echo "# ruff check ($(wc -l < "$out/files.txt") files)"

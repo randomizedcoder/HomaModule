@@ -2,9 +2,9 @@
 #
 # homaLib: what the module, userspace, analysis and fuzz builds share (see README.md).
 #
-#   version, meta    for every Homa derivation. The version leaves out the git revision
-#                    (rev, kept here too): with it, every commit would rebuild everything,
-#                    even one that only edits a README.
+#   version, meta    for every Homa derivation. The version leaves out the git revision:
+#                    with it, every commit would rebuild everything, even one that only
+#                    edits a README.
 #   src.<subset>     Homa's source cut down to what one kind of build reads, with the
 #                    patches in ../patches applied:
 #                      module   the top-level C sources, Makefiles and Kconfig
@@ -16,7 +16,7 @@
 #   mkKbuild         a derivation that runs Homa's Makefile (kbuild) against a kernel tree
 #   perKernel        { "<prefix>-<series>" = f series value; } for a set keyed by series
 
-{ pkgs, lib, rev }:
+{ pkgs, lib }:
 
 let
   root = ../..;
@@ -61,7 +61,7 @@ let
   };
 in
 {
-  inherit version src rev;
+  inherit version src;
 
   meta = {
     homepage = "https://github.com/PlatformLab/HomaModule";

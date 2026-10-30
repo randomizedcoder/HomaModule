@@ -27,10 +27,11 @@
 }:
 
 let
-  buildK = kernelConfig.unitKdir;
+  unitKp = kernelConfig.unitKernelPackages;
+  buildK = kernelConfig.kdirOf unitKp;
   compatHeader = ./homa_unit_compat.h;
 
-  kdir = pkgs.runCommand "homa-unit-kdir-${kernelConfig.unitModDirVersion}" { } ''
+  kdir = pkgs.runCommand "homa-unit-kdir-${unitKp.kernel.modDirVersion}" { } ''
     srcK="$(dirname "${buildK}")/source"
     mkdir -p "$out/include/generated" "$out/arch/x86/include"
     cp -rs "$srcK/include/." "$out/include/"

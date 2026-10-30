@@ -12,14 +12,14 @@ mkAnalysisTool {
   tools = [ pkgs.clang-tools pkgs.jq ];
   script = ''
     # Rewrite the DB's recorded source root onto our copy so clang-tidy finds the files.
-    srcroot=$(cat ${compile-db}/srcroot 2>/dev/null || echo /nonexistent)
+    srcroot=$(cat ${compile-db}/srcroot)
     sed "s|$srcroot|$PWD|g" ${compile-db}/compile_commands.json > compile_commands.json
 
     mapfile -t files < <(jq -r '.[].file' compile_commands.json 2>/dev/null \
-      | sed "s|$srcroot|$PWD|g" | grep -E 'homa_.*\.c$' | sort -u || true)
+      | grep -E 'homa_.*\.c$' | sort -u || true)
 
     {
-      echo "# clang-tidy (bugprone-*,cert-*,clang-analyzer-*): ''${#files[@]} file(s) in DB"
+      echo "# clang-tidy (bugprone-*,cert-*,clang-analyzer-*,misc-*): ''${#files[@]} file(s) in DB"
       for f in "''${files[@]}"; do
         [ -f "$f" ] || continue
         clang-tidy -p "$PWD" \

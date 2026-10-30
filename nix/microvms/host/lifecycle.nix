@@ -20,8 +20,7 @@
 # are in $HOMA_VM_LOGDIR (default: a fresh mktemp -d), which is also qemu's working
 # directory.
 
-{ lib
-, constants
+{ constants
 , tclApps         # tcl.nix
 , runner          # config.microvm.declaredRunner for a guest built with consolePorts
 , consolePorts    # { serial; virtio; }

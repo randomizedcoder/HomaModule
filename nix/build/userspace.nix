@@ -101,7 +101,7 @@ let
       };
     };
 
-  homa-utils = buildUtils { debug = false; };
+  homa-utils = buildUtils { };
   homa-utils-debug = buildUtils { debug = true; };
 
   homa-tests = pkgs.stdenv.mkDerivation {
@@ -150,6 +150,6 @@ let
   };
 in
 {
-  inherit buildUtils homa-utils homa-utils-debug homa-tests;
+  inherit buildUtils homa-utils homa-utils-debug;
   packages = { inherit homa-utils homa-utils-debug homa-tests; };
 }
