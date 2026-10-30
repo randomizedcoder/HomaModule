@@ -1,7 +1,7 @@
 # nix/microvms/constants.nix
 #
-# Pure data shared by the guest builder (mkVm.nix) and the orchestrator (smoke-test.nix). Single
-# source of truth for identity, resources and timeouts (uds-rdma-proxy pattern).
+# Pure data shared by the guest builder (guest/) and the host-side drivers (host/). Single
+# source of truth for identity, resources, ports and timeouts (uds-rdma-proxy pattern).
 
 { lib }:
 
@@ -48,17 +48,17 @@
     # Pair lifecycle (pair-lifecycle.nix): four console ports per pair, from here on.
     pairConsoleBase = 24800;
 
+    # Homa qdisc phases: net.homa.link_mbps for the paced phase. The qdisc uses it when the
+    # NIC reports no speed (virtio-net), and at 1 Gb/s a 1 MB echo is several ms of link
+    # time, so the pacer must defer packets.
+    qdisc.pacedMbps = 1000;
+
     # Link impairment phases: tc netem on eth1 of both nodes (so both directions), each
     # followed by echo, cp_node Homa and cp_node TCP. loss is a percentage (a string, as tc
     # takes it). Every netem qdisc gets this limit (packets): deep enough that the queue
     # never overflows, so the only drops are the configured random loss, not tail drops
     # that would skew the results. pair-lifecycle.nix checks each node's measured drop
     # rate against the configured one.
-    # Homa qdisc phases: net.homa.link_mbps for the paced phase. The qdisc uses it when the
-    # NIC reports no speed (virtio-net), and at 1 Gb/s a 1 MB echo is several ms of link
-    # time, so the pacer must defer packets.
-    qdisc.pacedMbps = 1000;
-
     netem = {
       limit = 100000;
       phases = [
@@ -81,7 +81,7 @@
       client = { hostname = "node1"; ip = "10.88.0.2"; mac = "52:54:00:88:00:02"; role = "connect"; };
     };
     prefixLength = 24;
-    socketPortBase = 23700; # host 127.0.0.1 ports for pair links start here (ports.nix)
+    linkPortBase = 23700; # host 127.0.0.1 ports for pair links start here (ports.nix)
     dgramPortOffset = 1000; # "dgram" link: node0 binds the pair's port, node1 this much higher
 
     # Guest TCP ports for coordination (not Homa traffic).
