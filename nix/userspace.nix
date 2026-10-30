@@ -23,9 +23,11 @@ let
   unitKdir = import ./unit-kdir { inherit pkgs lib kernelConfig; };
   version = "0-unstable-${lib.substring 0 8 (src.rev or "dirty")}";
 
-  buildUtils = { debug ? false }:
+  # report = true (cross.nix) runs `make -k` and never fails: $out/report.md says which
+  # util/ objects and programs built, with each failing file's first error.
+  buildUtils = { debug ? false, report ? false }:
     pkgs.stdenv.mkDerivation {
-      pname = "homa-utils${lib.optionalString debug "-debug"}";
+      pname = "homa-utils${lib.optionalString debug "-debug"}${lib.optionalString report "-report"}";
       inherit version src;
 
       nativeBuildInputs = [ pkgs.gnumake ];
@@ -37,13 +39,47 @@ let
 
       dontConfigure = true;
 
+      # util/Makefile calls g++ by name. When cross-compiling (cross.nix) that must be the
+      # target compiler, so put a g++ that is $CXX first on PATH.
       buildPhase = ''
         runHook preBuild
-        make -C util -j"$NIX_BUILD_CORES" all
+        ${lib.optionalString (pkgs.stdenv.hostPlatform != pkgs.stdenv.buildPlatform) ''
+          mkdir -p .cross-bin
+          ln -s "$(command -v "$CXX")" .cross-bin/g++
+          ln -s "$(command -v "$CC")" .cross-bin/gcc
+          ln -s "$(command -v "$CC")" .cross-bin/cc
+          export PATH="$PWD/.cross-bin:$PATH"
+        ''}
+        ${if report then ''
+          mkdir -p "$out"
+          make -C util -k -j"$NIX_BUILD_CORES" all > "$out/build.log" 2>&1 || true
+          {
+            echo "| File | Result | First error |"
+            echo "|---|---|---|"
+            for f in util/*.c util/*.cc homa_receiver.cc; do
+              o="util/$(basename "''${f%.*}").o"
+              if [ -f "$o" ]; then
+                echo "| $f | PASS | |"
+              else
+                # Rebuild it alone: with -j the errors interleave, and some are in headers.
+                err=$(make -C util "$(basename "$o")" 2>&1 \
+                  | grep -m 1 -E '^[^ ]+:[0-9]+:[0-9]+: error:' | sed 's/|/\\|/g' || true)
+                echo "| $f | FAIL | $err |"
+              fi
+            done
+            echo
+            bins=$(make -s -C util -p -n all 2>/dev/null | sed -n 's/^BINS := //p')
+            built=0
+            for b in $bins; do [ -x "util/$b" ] && built=$((built + 1)); done
+            echo "Programs built: $built of $(echo "$bins" | wc -w)"
+          } > "$out/report.md"
+        '' else ''
+          make -C util -j"$NIX_BUILD_CORES" all
+        ''}
         runHook postBuild
       '';
 
-      installPhase = ''
+      installPhase = if report then "true" else ''
         runHook preInstall
         mkdir -p "$out/bin"
         # Install every executable the Makefile produced under util/.
@@ -113,6 +149,6 @@ let
   };
 in
 {
-  inherit homa-utils homa-utils-debug homa-tests unitKdir;
+  inherit buildUtils homa-utils homa-utils-debug homa-tests unitKdir;
   packages = { inherit homa-utils homa-utils-debug homa-tests; };
 }

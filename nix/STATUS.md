@@ -11,8 +11,7 @@ Related docs:
 
 | | |
 |---|---|
-| **Last update** | 2026-10-28 |
-| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22 |
+| **Last update** | 2026-10-29 |
 | **Branch** | `nix-flake` on randomizedcoder/HomaModule, rebased on upstream `main` |
 | **nixpkgs** | `nixos-unstable` |
 | **Default kernel** | `linuxPackages_latest` (7.3); unit harness and fuzz-mock use 6.18.57 headers (F5) |
@@ -27,6 +26,7 @@ Related docs:
 |---|---|---|
 | Module build | `nix build .#homa-build-matrix` | ✅ 6.12, 7.0, 7.1, 7.2, 7.3. ❌ 6.18.57 (F1, not a target). ❌ 6.1/6.6 (no `net/rps.h`, below Homa's range) |
 | Stripped build | `make __STRIP__=1` (7.3) | ✅ clean |
+| Cross compile | `nix build .#homa-cross-matrix` | ✅ `homa.ko` for riscv64 and aarch64 (7.3, normal and stripped). ❌ `util/` is x86-only (F9) |
 | Unit tests | `nix build .#homa-tests` | ✅ 884/884, in IPv6 and `--ipv4` modes |
 | Fuzzing, real parsers | `nix build .#fuzz-mock` | ✅ all 10 harnesses run clean; the known-findings list is empty |
 | Fuzzing, wire decoder | `fuzz-run`, `fuzz-selftest` | ✅ selftest canary PASS |
@@ -75,6 +75,9 @@ that traffic flows, not how fast Homa is.
 | `nix flake show`, `nix flake check` | ✅ evaluates, checks pass |
 | `homa-module` (7.3), `homa-module-<series>` | ✅ (see the matrix above) |
 | `homa-utils`, `homa-utils-debug` | ✅ |
+| `homa-module-{riscv64,aarch64}[-strip]` | ✅ compile; `readelf` confirms RISC-V / AArch64 |
+| `homa-utils-{riscv64,aarch64}` | ❌ x86-only code in `util/` (F9) |
+| `homa-cross-matrix` | ✅ summary of both arches (fails only if a `homa.ko` does) |
 | `homa-tests` | ✅ 884/884 (hermetic 6.18 unit KDIR) |
 | `homa-image[-debug]` | ✅ |
 | `analysis-quick` | ✅ |
@@ -239,6 +242,37 @@ straight after `.exit` and before its own `rcu_barrier()`. It came in with upstr
   [randomizedcoder/HomaModule#22](https://github.com/randomizedcoder/HomaModule/pull/22).
 - **Until it lands,** `homa-vm-matrix` and the VM tests fail on `main`, as they should.
 
+### F9: `util/` builds only on x86; `homa.ko` cross-compiles cleanly
+
+`homa-cross-matrix` cross-compiles for riscv64 (`pkgsCross.riscv64`) and aarch64
+(`pkgsCross.aarch64-multiplatform`) on an x86_64 host. Toolchains come from the binary cache,
+and the 7.3 trees are prepared from source with each arch's nixpkgs kernel config (about
+2 minutes each).
+
+- **`homa.ko`:** builds for both arches, in normal and `__STRIP__=1` forms. There are no errors
+  and no warnings on riscv64. On aarch64 there is one warning:
+  `homa_metrics.c:442: the frame size of 2112 bytes is larger than 2048 bytes`
+  (`homa_metrics_print`, which the stripped build leaves out). The same function stays under
+  the limit on x86.
+- **Bug, riscv clock rate:** in the normal build, `homa_clock()` is `get_cycles()`. On riscv
+  that reads the `time` CSR, which ticks at the platform timebase: 10 MHz on QEMU `virt`, and
+  1 MHz on some boards. `homa_clock_khz()` (`homa_impl.h:767`) has cases for x86 (`tsc_khz`)
+  and arm64 (`arch_timer_get_cntfrq()`), and otherwise returns 1000000, i.e. 1 GHz. So on
+  riscv every cycles↔ns conversion is 100× to 1000× off: timeouts, RESEND intervals and
+  pacing. A likely fix is `riscv_timebase / 1000` under `CONFIG_RISCV` (the symbol is
+  exported GPL, and Homa is Dual BSD/GPL). The stripped (upstream) build uses
+  `ktime_get_ns()` and is correct. This was found by reading the code, since nothing runs on
+  riscv yet.
+- **`util/`:** 0 of 19 programs build on either arch. 17 of 23 sources compile; the other 6 fail
+  for two reasons:
+  - `rdtsc()` in `util/test_utils.h:63` is x86 inline asm ("impossible constraint in 'asm'").
+    It breaks `test_utils.cc`, which every program links, plus `time_trace.cc`, `dist_test.cc`,
+    `homa_test.cc` and `smi.cc`. `util/inc_tput.cc:26` has a second, unused copy.
+  - The `cp_node.cc:3662` crash handler reads `uc_mcontext.gregs[REG_RIP]`, which is x86_64-only.
+- **Follow-up:** ask John whether non-x86 `util/` matters (#14). If it does, the fix is small:
+  `__builtin_ia32_rdtsc` on x86 with `clock_gettime(CLOCK_MONOTONIC_RAW)` elsewhere, and
+  `REG_RIP` behind `#ifdef __x86_64__`.
+
 ---
 
 ## Follow-up actions
@@ -257,6 +291,8 @@ straight after `.exit` and before its own `rcu_barrier()`. It came in with upstr
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
 | 10 | ~~Post F2 upstream~~ not needed: VM link, not Homa | — | — | — |
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
+| 14 | Does `util/` need to build off x86? (F9) If so, a portable `rdtsc()` and `REG_RIP` guard | riscv64/aarch64 `util/` builds fail | small | ask John |
+| 15 | riscv `homa_clock_khz()`: `riscv_timebase / 1000` (F9) | Timers 100× off on riscv in the normal build | small | us → upstream (if John wants riscv) |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
@@ -269,3 +305,4 @@ straight after `.exit` and before its own `rcu_barrier()`. It came in with upstr
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
 | 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
+| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9) |

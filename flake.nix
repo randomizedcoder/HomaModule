@@ -13,6 +13,8 @@
 #   nix build .#homa-module-6_12           # per kernel: 6_1 6_6 6_12 6_18 7_3 (nixpkgs),
 #                                          #   7_0 7_1 7_2 (kernel.org source, compile only)
 #   nix build .#homa-build-matrix          # every kernel above -> summary.md (never fails)
+#   nix build .#homa-module-riscv64        # cross-compiled homa.ko: riscv64, aarch64 (+ -strip)
+#   nix build .#homa-cross-matrix          # both arches: homa.ko + util/ report -> summary.md
 #   HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-module-local
 #   nix build .#homa-utils                 # user-space tools from util/
 #   nix build .#homa-utils-debug           # user-space tools with AddressSanitizer
@@ -87,6 +89,12 @@
           inherit pkgs lib kernelConfig kernelSrc;
           src = homaSrc;
         };
+        # Cross-compile checks for riscv64 and aarch64 (x86_64 hosts only).
+        crossPkgs = import ./nix/cross.nix {
+          inherit pkgs lib kernelConfig kernelSrc;
+          src = homaSrc;
+          buildAgainstTree = modulePkgs.buildAgainstTree;
+        };
         userspacePkgs = import ./nix/userspace.nix {
           inherit pkgs lib kernelConfig;
           src = homaSrc;
@@ -123,6 +131,7 @@
           // analysisPkgs.packages
           // fuzzPkgs.packages
           // microvmPkgs.packages
+          // lib.optionalAttrs (system == "x86_64-linux") crossPkgs.packages
           // { default = modulePkgs.homa-module; };
 
         checks =

@@ -195,6 +195,8 @@ nix build .#homa-module              # homa.ko (release) against the default ker
 nix build .#homa-module-debug        # homa.ko (debug: -g -O1)
 nix build .#homa-module-<series>     # one kernel (table above)
 nix build .#homa-build-matrix        # every kernel -> result/summary.md (never fails)
+nix build .#homa-module-riscv64      # cross-compiled homa.ko (also -aarch64, and -strip)
+nix build .#homa-cross-matrix        # riscv64 + aarch64: homa.ko and util/ -> summary.md
 HOMA_LINUX_SRC=~/src/linux nix build --impure .#homa-module-local   # your kernel checkout
 nix build .#homa-utils[-debug]       # user-space tools (util/); -debug adds ASan
 nix build .#homa-tests               # build + run the unit tests (ASan)
@@ -241,6 +243,7 @@ default each run makes a fresh `mktemp -d` and prints its path.
 | `env-vars.nix` | dev-shell environment fragment |
 | `module.nix` | `homa.ko` derivations (debug/release, per kernel) and `homa-build-matrix` |
 | `userspace.nix` | `util/` tools and the `test/` unit harness |
+| `cross.nix` | riscv64 and aarch64 cross builds (`pkgsCross`) and `homa-cross-matrix` |
 | `devshell.nix` + `shell-functions/` | the dev shell |
 | `oci.nix` | user-space OCI image |
 | `microvms/` | per-kernel microVM guests, the in-guest smoke and pair tests, and the orchestrators |
