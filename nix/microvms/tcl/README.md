@@ -2,15 +2,15 @@
 
 The lifecycle tests boot QEMU guests and drive them from the host, phase by phase, over
 each guest's consoles. This directory is the code that does the driving: a small Tcl
-package, `homa::lc`, and one driver script per test. Nix (`../tcl.nix`) packages each
+package, `homa::lc`, and one driver script per test. Nix (`../host/tcl.nix`) packages each
 driver as a command and passes it its configuration as a JSON file. That way, every port,
 timeout and netem setting still comes from `../constants.nix`.
 
-| Command                         | Driver                   | Nix wrapper                |
-|---------------------------------|--------------------------|----------------------------|
-| `homa-lifecycle[-<series>]`      | `bin/lifecycle.tcl`      | `../lifecycle.nix`         |
-| `homa-pair-lifecycle[-<series>]` | `bin/pair-lifecycle.tcl` | `../pair-lifecycle.nix`    |
-| `homa-vm-matrix`                 | `bin/vm-matrix.tcl`      | `../matrix.nix`            |
+| Command                          | Driver                   | Nix wrapper                  |
+|----------------------------------|--------------------------|------------------------------|
+| `homa-lifecycle[-<series>]`      | `bin/lifecycle.tcl`      | `../host/lifecycle.nix`      |
+| `homa-pair-lifecycle[-<series>]` | `bin/pair-lifecycle.tcl` | `../host/pair-lifecycle.nix` |
+| `homa-vm-matrix`                 | `bin/vm-matrix.tcl`      | `../host/matrix.nix`         |
 
 ```sh
 nix run .#homa-lifecycle-7_3          # one guest: boot, smoke, module cycles, dmesg, poweroff
@@ -100,6 +100,9 @@ The `tcl-tests` check runs both, plus two linters:
   for our own commands from the loaded code (ensemble maps, `info args`, class
   definitions), so the lint follows the code.
 - **tclint** checks style.
+
+It also checks that `parse.tcl`'s oops regex (`oopsRe`) is the same as
+`constants.oopsRegex`, which the guests' own dmesg checks use.
 
 Expect in nixpkgs is built for Tcl 8.6, so the drivers run on 8.6. Running `parse.test` on
 Tcl 9.0 as well keeps the pure code ready for 9.

@@ -45,8 +45,11 @@ let
     src = lib.fileset.toSource { inherit root fileset; };
     patches = map (patchFor dirs) patches;
   };
+  # A directory without its Markdown files: no build reads them.
+  dirNoDocs = d: lib.fileset.difference (root + "/${d}")
+    (lib.fileset.fileFilter (f: f.hasExt "md") (root + "/${d}"));
   withDirs = name: dirs: subset name dirs
-    (lib.fileset.unions ([ topLevel ] ++ map (d: root + "/${d}") dirs));
+    (lib.fileset.unions ([ topLevel ] ++ map dirNoDocs dirs));
 
   version = "0-unstable";
   src = {

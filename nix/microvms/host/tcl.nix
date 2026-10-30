@@ -1,8 +1,8 @@
 # nix/microvms/host/tcl.nix
 #
-# Packages the Tcl/Expect drivers in tcl/ (see tcl/README.md):
+# Packages the Tcl/Expect drivers in ../tcl (see ../tcl/README.md):
 #
-#   mkTclApp { name, driver, config }   bin/<name>: runs tcl/bin/<driver> with config, an
+#   mkTclApp { name, driver, config }   bin/<name>: runs ../tcl/bin/<driver> with config, an
 #                                       attribute set written out as JSON
 #   tests                               the tcltest suite under Tcl 8.6 (with Expect) and the
 #                                       pure tables under Tcl 9.0, plus nagelfar and tclint

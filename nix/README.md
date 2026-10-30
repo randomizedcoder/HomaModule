@@ -234,22 +234,42 @@ nix flake check                      # run the checks
 `HOMA_VM_LOGDIR=<dir>` keeps the microVM console logs in a directory of your choice. By
 default each run makes a fresh `mktemp -d` and prints its path.
 
-## Module map
+## How to read this tree
 
-| File | Concern |
+New to Nix? Four ideas cover most of what is here.
+
+- **A derivation is a build recipe.** It lists its inputs (source, compilers, other
+  derivations) and a script that writes its output to `/nix/store/<hash>-<name>`. The hash
+  covers every input, so the same inputs give the same output on any machine, and a build
+  whose inputs have not changed is not run again.
+- **A `.nix` file is usually a function.** `{ pkgs, lib, homaLib }: ...` takes an attribute
+  set (Nix's name for a record or dict) and returns derivations. The braces list what the
+  file depends on.
+- **The scope wires the files together.** [`scope.nix`](scope.nix) calls each file with
+  `callPackage`, which passes it the arguments its braces name, from the scope or from
+  nixpkgs. No file imports another file's dependencies by hand.
+- **The flake exposes the results.** [`../flake.nix`](../flake.nix) names its inputs
+  (nixpkgs, microvm.nix, flake-parts, all pinned in `flake.lock`) and lists the files in
+  [`parts/`](parts/). Each part picks targets from the scope, and those are the names that
+  `nix build .#<name>` and `nix run .#<name>` accept.
+
+So, to find where `nix build .#X` comes from, look in `parts/` for the area, then in the
+scope for the file. Each folder's README covers what it holds, what to run, and the Nix
+idioms it uses.
+
+## Folder map
+
+| Folder | What it holds |
 |---|---|
-| `kernel/config.nix` | default kernel, `KDIR`, per-series matrix |
-| `kernel/src.nix` | prepared kernel trees from kernel.org tarballs or a local checkout |
-| `patches/` | upstream-pending Homa fixes the flake applies (currently none) |
-| `packages.nix` | toolchain inventory (build deps, dev and analysis tools, python env) |
-| `env-vars.nix` | dev-shell environment fragment |
-| `module.nix` | `homa.ko` derivations (debug/release, per kernel) and `homa-build-matrix` |
-| `userspace.nix` | `util/` tools and the `test/` unit harness |
-| `cross.nix` | riscv64 and aarch64 cross builds (`pkgsCross`) and `homa-cross-matrix` |
-| `dev/shell.nix` + `shell-functions/` | the dev shell |
-| `oci.nix` | user-space OCI image |
-| `microvms/` | per-kernel microVM guests, the in-guest smoke and pair tests, and the orchestrators |
-| `analysis/` | tiered static analysis (quick/standard/deep) |
-| `fuzz/` | libFuzzer harnesses for wire (de)serialization |
+| [`parts/`](parts/) | the flake's outputs, one file per area |
+| [`lib/`](lib/) | `homaLib`: the source subsets with `patches/` applied, `mkKbuild`, `perKernel` |
+| [`kernel/`](kernel/) | the kernels: the default and the matrix, trees prepared from source, the unit-test tree |
+| [`build/`](build/) | `homa.ko` per kernel and cross-compiled, `util/`, the unit tests, the OCI image |
+| [`dev/`](dev/) | `nix develop`: tool lists, environment, helper functions |
+| [`analysis/`](analysis/) | static analysis in three tiers |
+| [`fuzz/`](fuzz/) | libFuzzer harnesses for the wire format |
+| [`microvms/`](microvms/) | the QEMU tests: [`guest/`](microvms/guest/) runs in the VMs, [`host/`](microvms/host/) and [`tcl/`](microvms/tcl/) drive them |
+| [`patches/`](patches/) | upstream-pending Homa fixes the flake applies (currently none) |
+| [`docs/`](docs/) | [`DESIGN.md`](docs/DESIGN.md): the reasons behind the layout |
 
 Reports from the analysis and fuzzing runs are in [`../analysis-reports/`](../analysis-reports/).

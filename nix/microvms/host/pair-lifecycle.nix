@@ -2,8 +2,8 @@
 #
 # Pair lifecycle test (PLAN-pairs.md phase 4): the two-VM pair (node0 server, node1 client,
 # on a private eth1 link) driven from the host over each guest's hvc0, with every phase
-# timed. Neither guest runs a test of its own. The driver is tcl/bin/pair-lifecycle.tcl
-# (Tcl/Expect, see tcl/README.md); this file only gives it its configuration.
+# timed. Neither guest runs a test of its own. The driver is ../tcl/bin/pair-lifecycle.tcl
+# (Tcl/Expect, see ../tcl/README.md); this file only gives it its configuration.
 #
 #   1-3   start, serial, virtio     each node
 #   4     insmod                    each node
