@@ -33,7 +33,8 @@ Related docs:
 | Single VM | `homa-microvm-test-{6_12,7_3}` | ✅ insmod, loopback echo, netns/veth with GRO+RPS (about 1.7k `homa_gro_receive` and 460 `homa_set_softirq_cpu` calls), rmmod, clean dmesg |
 | Two VMs | `homa-pair-test-<server>-<client>` | ✅ all four 6.12/7.3 pairings: ping, echo 100 B–1 MB, cp_node w4 over Homa and over TCP, clean dmesg on both. 8 VMs in parallel finish in 50 s |
 | Latency sweep | `homa-pair-exp`, `homa-pair-exp-socket` | ✅ F2 explained: QEMU's TCP `socket` link stalls packets; over the UDP `dgram` link (now the default) Homa's P50 matches TCP's |
-| VM matrix | `homa-vm-matrix` | ❌ on `main`: all 6 oops in `homa_route_free` (F8). ✅ 6/6 with the fix (fork #22), 46 s |
+| Lifecycle | `homa-lifecycle-{6_12,7_3}` | ❌ on `main`: phase 3 (smoke) crashes in `homa_route_free` (F8), and phases 7–8 report it. ✅ all 9 phases with the fix, about 22 s |
+| VM matrix | `homa-vm-matrix` | ❌ on `main` (F8). ✅ 8/8 with the fix (fork #22): smoke and lifecycle per kernel, plus four pairs, in 51 s |
 | KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
@@ -53,6 +54,34 @@ On the earlier TCP `socket` link, Homa's P50 was 2927–5024 µs and TCP's P99 a
 
 These are functional numbers: an emulated link between VMs that share host CPUs. They show
 that traffic flows, not how fast Homa is.
+
+### Lifecycle test (`nix run .#homa-lifecycle`)
+
+This follows the pcp and xdp2 lifecycle tests. The guest has two consoles on host TCP
+ports:
+
+- **ttyS0** is the only kernel console. QEMU logs it to `serial.log` from the first byte,
+  so an oops is caught even after the shell has died, during shutdown for instance.
+- **hvc0** is a virtio console running a root shell. The host drives each phase through it,
+  and it is fast: reading 612 lines of `dmesg` takes 188 ms, where 115200 baud would take
+  seconds. Kernel messages never mix into command output.
+
+Results on 7.3 with the F8 fix:
+
+| Phase | | ms |
+|---|---|---|
+| 1 start | qemu running, ports listening | 108 |
+| 2 serial | first kernel line on ttyS0 | 2482 |
+| 2b virtio | root shell answering on hvc0 | 12698 |
+| 3 smoke | `homa-smoke` over hvc0 | 2722 |
+| 4 cycles | 5 × insmod, netns add/del, rmmod | 1025 |
+| 5 dmesg | no BUG/Oops/WARNING/KASAN | 188 |
+| 6 shutdown | `poweroff` over hvc0 | 2 |
+| 7 exit | qemu exits | 3050 |
+| 8 serial-log | no oops anywhere in `serial.log` | 8 |
+
+On `main`, phase 3 crashes. Phases 4–6 are then SKIPped (there is no shell), phase 7 reports
+"qemu exited before poweroff", and phase 8 shows the oops and its `RIP:` line.
 
 ### Build matrix (`nix build .#homa-build-matrix`)
 
@@ -88,6 +117,7 @@ that traffic flows, not how fast Homa is.
 | `homa-microvm-test` (7.3.0), `homa-microvm-test-6_12` | ✅ PASS |
 | `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
 | `homa-pair-test`, `homa-pair-test-<server>-<client>` | ✅ PASS for all four 6.12/7.3 pairings |
+| `homa-lifecycle`, `homa-lifecycle-<series>` | ✅ PASS with the F8 fix (see below) |
 
 ---
 
@@ -305,4 +335,4 @@ and the 7.3 trees are prepared from source with each arch's nixpkgs kernel confi
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
 | 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
-| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9) |
+| 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0) |

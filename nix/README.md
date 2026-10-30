@@ -204,6 +204,7 @@ nix build .#homa-tests               # build + run the unit tests (ASan)
 nix run   .#homa-microvm-test        # default kernel: insmod, echo, GRO/RPS, rmmod
 nix run   .#homa-microvm-test-<s>    # ... on one kernel
 nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel (slow)
+nix run   .#homa-lifecycle[-<s>]     # host-driven, timed phases over ttyS0 + virtio console
 nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
 nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>

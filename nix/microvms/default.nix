@@ -5,6 +5,9 @@
 #   homa-microvm[-<series>]        the QEMU runner package (nix run boots it directly)
 #   homa-microvm-test[-<series>]   boot, run smoke.nix in the guest (insmod, loopback echo
 #                                  RPCs, rmmod), PASS/FAIL from the console log
+#   homa-lifecycle[-<series>]      host-driven phases over ttyS0 + a virtio console, each
+#                                  timed: boot, smoke, module cycles, dmesg, poweroff, exit
+#                                  (lifecycle.nix, pcp pattern)
 #   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
 #   homa-microvm-test-debug        ... the same test under sanitizers
 #   homa-pair-test[-<s>-<c>]       two VMs (lib-pair.nix): Homa between server <s>, client <c>
@@ -43,9 +46,11 @@ let
     , pairPort ? constants.pair.socketPortBase
     , pairExperiments ? null
     , pairLink ? "dgram"
+    , consolePorts ? null
     }: import ./mkVm.nix {
       inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
-        kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink;
+        kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink
+        consolePorts;
       homaModule = buildModule { inherit kernelPackages; };
       homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
     };
@@ -54,6 +59,17 @@ let
     inherit pkgs lib constants label withSanitizers;
     runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
   };
+
+  # Lifecycle test; index picks the guest's console ports (constants.lifecycle).
+  mkLifecycle = { kernelPackages, label, index }:
+    let
+      base = constants.lifecycle.portBase + 2 * index;
+      consolePorts = { serial = base; virtio = base + 1; };
+    in
+    import ./lifecycle.nix {
+      inherit pkgs lib constants label consolePorts;
+      runner = mkGuest { inherit kernelPackages consolePorts; };
+    };
 
   # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
   mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./lib-pair.nix {
@@ -112,17 +128,18 @@ let
 
   defaultKp = kernelConfig.kernelPackages;
 
-  # homa-vm-matrix: every per-kernel smoke test and every pair, in parallel (phase 3).
+  # homa-vm-matrix: every per-kernel smoke and lifecycle test and every pair, in parallel.
   matrix = import ./matrix.nix {
     inherit pkgs lib;
     tests =
-      lib.mapAttrsToList
-        (s: _: {
-          name = "homa-microvm-test-${s}";
-          kernels = s;
-          exe = perKernel."homa-microvm-test-${s}";
-        })
-        kernelConfig.vmMatrix
+      lib.concatMap
+        (s: map
+          (kind: {
+            name = "homa-${kind}-${s}";
+            kernels = s;
+            exe = perKernel."homa-${kind}-${s}";
+          }) [ "microvm-test" "lifecycle" ])
+        vmSeries
       ++ map
         (p: {
           name = "homa-pair-test-${p.server}-${p.client}";
@@ -132,18 +149,21 @@ let
         pairList;
   };
 
-  perKernel = lib.concatMapAttrs
-    (s: kp: {
-      "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
-      "homa-microvm-test-${s}" = mkTest { kernelPackages = kp; label = "-${s}"; };
-    })
-    kernelConfig.vmMatrix;
+  perKernel = lib.foldl' (a: b: a // b) { } (lib.imap1
+    (i: s:
+      let kp = kernelConfig.vmMatrix.${s}; in {
+        "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
+        "homa-microvm-test-${s}" = mkTest { kernelPackages = kp; label = "-${s}"; };
+        "homa-lifecycle-${s}" = mkLifecycle { kernelPackages = kp; label = "-${s}"; index = i; };
+      })
+    vmSeries);
 in
 {
   packages = {
     homa-microvm = mkGuest { kernelPackages = defaultKp; };
     homa-microvm-debug = mkGuest { kernelPackages = defaultKp; withSanitizers = true; };
     homa-microvm-test = mkTest { kernelPackages = defaultKp; label = ""; };
+    homa-lifecycle = mkLifecycle { kernelPackages = defaultKp; label = ""; index = 0; };
     homa-microvm-test-debug = mkTest {
       kernelPackages = defaultKp;
       label = "-debug";
