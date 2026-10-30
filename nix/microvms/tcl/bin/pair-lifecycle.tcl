@@ -207,13 +207,9 @@ proc pair::traffic {id name {loss {}} {must {}}} {
             dict for {key node} $nodes {
                 set out [dict get [$node run [file join $dir $key-tc] $timeout \
                     "tc -s qdisc show dev eth1"] out]
-                lassign [parse netemSent $out] packets dropped
-                set measured [parse dropRate [expr {$packets eq "" ? 0 : $packets}] \
-                    [expr {$dropped eq "" ? 0 : $dropped}] $loss]
-                set total [expr {$packets eq "" ? 0 : $packets + $dropped}]
-                lappend dropReport [format "%s %s/%s (%s%%)" $key \
-                    [expr {$dropped eq "" ? "?" : $dropped}] $total [dict get $measured rate]]
-                if {![dict get $measured ok]} {
+                set check [parse netemCheck $key $out $loss]
+                lappend dropReport [dict get $check report]
+                if {![dict get $check ok]} {
                     lappend failed drops-$key
                 }
             }
