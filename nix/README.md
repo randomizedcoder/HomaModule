@@ -211,6 +211,8 @@ nix run   .#homa-pair-test-<s>-<c>   # ... server kernel <s>, client kernel <c>
 nix run   .#homa-pair-lifecycle[-<s>] # the pair over both consoles, timed: netem loss/delay, Homa qdisc
 nix run   .#homa-pair-exp            # latency sweep: cp_node per sysctl setting + metric deltas
 nix run   .#homa-vm-matrix           # every VM test and pair in parallel -> summary table
+nix run   .#homa-vm-compare -- a b  # two matrix runs' logs ($HOMA_VM_LOGDIR), phase by phase
+nix run   .#homa-tcl-test [-- -file x.test] # the Tcl drivers' tests, or some; homa-tcl-lint: their lint
 nix run   .#homa-pair-exp-socket     # ... over QEMU's TCP socket link (STATUS.md F2)
 
 nix build .#homa-image[-debug]       # OCI user-space image (docker load < result)

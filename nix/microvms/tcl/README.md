@@ -11,6 +11,7 @@ timeout and netem setting still comes from `../constants.nix`.
 | `homa-lifecycle[-<series>]`      | `bin/lifecycle.tcl`      | `../host/lifecycle.nix`      |
 | `homa-pair-lifecycle[-<series>]` | `bin/pair-lifecycle.tcl` | `../host/pair-lifecycle.nix` |
 | `homa-vm-matrix`                 | `bin/vm-matrix.tcl`      | `../host/matrix.nix`         |
+| `homa-vm-compare`                | `bin/vm-compare.tcl`     | `../default.nix` (no config) |
 
 ```sh
 nix run .#homa-lifecycle-7_3          # one guest: boot, smoke, module cycles, dmesg, poweroff
@@ -20,7 +21,28 @@ HOMA_VM_JOBS=4 nix run .#homa-vm-matrix            # every VM test, at most 4 at
 nix build .#checks.x86_64-linux.tcl-tests          # the tests and lint below
 nix run .#homa-tcl-test -- -file wait.test          # some of the tests (see Tests)
 nix run .#homa-tcl-lint                             # just the lint
+nix run .#homa-vm-compare -- /tmp/before /tmp/after # two matrix runs, phase by phase
 ```
+
+`nix develop` has `tclsh` with Expect and tcllib, `nagelfar` and `tclint`, for working on
+the drivers by hand.
+
+### Comparing two runs
+
+After changing a driver, run the matrix with the logs kept, and compare them with a run
+from before the change:
+
+```sh
+HOMA_VM_LOGDIR=/tmp/after nix run .#homa-vm-matrix
+nix run .#homa-vm-compare -- /tmp/before /tmp/after
+```
+
+For each test (`<test>.out`), `homa-vm-compare` compares what two good runs share
+(`parse shape`): each phase's id, name and verdict, the `HOMA_*` lines with their numbers
+masked, and the `VERDICT` lines. Times, details and counters are ignored. It prints
+`<test>: same (N lines)`, or `<test>: differs` followed by the changes (`-` for a line only
+in the old run, `+` for one only in the new run, from `report diff`). It exits 0 if every
+test is the same, 1 if not, and 2 on a usage error.
 
 ## Files
 
@@ -32,7 +54,7 @@ nix run .#homa-tcl-lint                             # just the lint
 | `console.tcl` | `homa::lc::console` | `Console`, a TclOO class. It runs one shell command at a time over a guest console with Expect, and returns `{rc out}`. |
 | `lc.tcl` | `homa::lc` | `Table`, the phase table: it times each phase, prints its line and writes `summary.md` with the VERDICT. `Node`, one guest: its QEMU process, its consoles, and the phases every test runs on each guest; `Node phase` runs a phase that needs the guest's shell. `Batch` runs whole tests as child processes, up to a job limit, through the event loop. `waitFor` (below), `readFile` and `writeFile`. |
 | `pkgIndex.tcl` | | Tells `package require` where each package lives. |
-| `bin/*.tcl` | | The drivers. Each reads its JSON config, then runs its phases. |
+| `bin/*.tcl` | | The drivers. Each reads its JSON config, then runs its phases; `vm-compare.tcl` takes two log directories instead. |
 | `tests/` | | The tcltest suite and the lint database generator (below). |
 
 ## The console protocol
@@ -90,8 +112,8 @@ testTable combine {
 | File | Covers |
 |---|---|
 | `tests/protocol.test` | `protocol wrap` and `protocol line`: markers, stale markers, CRs, bad ids |
-| `tests/parse.test` | every `parse` function |
-| `tests/report.test` | every `report` function, `trafficDetail` and `matrixRow` included |
+| `tests/parse.test` | every `parse` function, `shape` (for `homa-vm-compare`) included |
+| `tests/report.test` | every `report` function, `trafficDetail`, `matrixRow` and `diff` included |
 | `tests/wait.test` | `waitFor`: at once, before and at the deadline, bad arguments, nested waits |
 | `tests/console.test` | `Console`, against a real bash behind a local socket: timeouts, eof, stale markers, CRLF, split writes, 20000-line outputs |
 | `tests/table.test` | `Table`: verdicts, the phase lines, `summary.md`, errors, `return`, `break` and `continue` inside phases, `phase-errors.log` |
