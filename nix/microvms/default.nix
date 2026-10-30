@@ -11,6 +11,8 @@
 #   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
 #   homa-microvm-test-debug        ... the same test under sanitizers
 #   homa-pair-test[-<s>-<c>]       two VMs (lib-pair.nix): Homa between server <s>, client <c>
+#   homa-pair-lifecycle[-<series>] the pair driven over both consoles, with timed phases and
+#                                  tc netem loss/delay phases (pair-lifecycle.nix)
 #   homa-pair-exp[-socket]         latency sweep over the pair link (STATUS.md F2)
 #   homa-vm-matrix                 every homa-microvm-test-<series> and pair, in parallel,
 #                                  with a summary table (matrix.nix)
@@ -71,6 +73,28 @@ let
       runner = mkGuest { inherit kernelPackages consolePorts; };
     };
 
+  # Pair lifecycle (PLAN-pairs.md phase 4): both nodes on one kernel, driven over their
+  # consoles, with netem phases. index picks the console and link ports (constants.lifecycle).
+  mkPairLifecycle = { kernelPackages, label, index }:
+    let
+      lc = constants.lifecycle;
+      base = lc.pairConsoleBase + 4 * index;
+      ports = {
+        node0 = { serial = base; virtio = base + 1; };
+        node1 = { serial = base + 2; virtio = base + 3; };
+      };
+      node = pairNode: mkGuest {
+        inherit kernelPackages pairNode;
+        pairPort = constants.pair.socketPortBase + lc.pairLinkOffset + index;
+        consolePorts = ports.${if pairNode == "server" then "node0" else "node1"};
+      };
+    in
+    import ./pair-lifecycle.nix {
+      inherit pkgs lib constants label ports;
+      serverRunner = node "server";
+      clientRunner = node "client";
+    };
+
   # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
   mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./lib-pair.nix {
     inherit pkgs lib constants label port link;
@@ -128,7 +152,8 @@ let
 
   defaultKp = kernelConfig.kernelPackages;
 
-  # homa-vm-matrix: every per-kernel smoke and lifecycle test and every pair, in parallel.
+  # homa-vm-matrix: every per-kernel smoke, lifecycle and pair lifecycle test and every
+  # pair, in parallel.
   matrix = import ./matrix.nix {
     inherit pkgs lib;
     tests =
@@ -138,7 +163,7 @@ let
             name = "homa-${kind}-${s}";
             kernels = s;
             exe = perKernel."homa-${kind}-${s}";
-          }) [ "microvm-test" "lifecycle" ])
+          }) [ "microvm-test" "lifecycle" "pair-lifecycle" ])
         vmSeries
       ++ map
         (p: {
@@ -155,6 +180,7 @@ let
         "homa-microvm-${s}" = mkGuest { kernelPackages = kp; };
         "homa-microvm-test-${s}" = mkTest { kernelPackages = kp; label = "-${s}"; };
         "homa-lifecycle-${s}" = mkLifecycle { kernelPackages = kp; label = "-${s}"; index = i; };
+        "homa-pair-lifecycle-${s}" = mkPairLifecycle { kernelPackages = kp; label = "-${s}"; index = i; };
       })
     vmSeries);
 in
@@ -164,6 +190,7 @@ in
     homa-microvm-debug = mkGuest { kernelPackages = defaultKp; withSanitizers = true; };
     homa-microvm-test = mkTest { kernelPackages = defaultKp; label = ""; };
     homa-lifecycle = mkLifecycle { kernelPackages = defaultKp; label = ""; index = 0; };
+    homa-pair-lifecycle = mkPairLifecycle { kernelPackages = defaultKp; label = ""; index = 0; };
     homa-microvm-test-debug = mkTest {
       kernelPackages = defaultKp;
       label = "-debug";

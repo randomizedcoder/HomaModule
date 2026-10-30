@@ -33,8 +33,32 @@
       cycles = 90; # insmod / netns add+del / rmmod, several times
       command = 30; # any other single command
       exit = 60; # poweroff until qemu exits
+      echo = 60; # demo_client1's six RPCs, also over a lossy link
     };
     moduleCycles = 5;
+
+    # Pair lifecycle (pair-lifecycle.nix): pair j's consoles are pairConsoleBase + 4j ..
+    # + 4j + 3 (node0 serial, virtio, node1 serial, virtio) and its link is
+    # pair.socketPortBase + pairLinkOffset + j.
+    pairConsoleBase = 24800;
+    pairLinkOffset = 200;
+
+    # Link impairment phases: tc netem on eth1 of both nodes (so both directions), each
+    # followed by echo, cp_node Homa and cp_node TCP. loss is a percentage (a string, as tc
+    # takes it). Every netem qdisc gets this limit (packets): deep enough that the queue
+    # never overflows, so the only drops are the configured random loss, not tail drops
+    # that would skew the results. pair-lifecycle.nix checks each node's measured drop
+    # rate against the configured one.
+    netem = {
+      limit = 100000;
+      phases = [
+        { name = "delay1ms"; delay = "1ms"; loss = "0"; }
+        { name = "loss0.1"; delay = null; loss = "0.1"; }
+        { name = "loss1"; delay = null; loss = "1"; }
+        { name = "loss1-delay1ms"; delay = "1ms"; loss = "1"; }
+        { name = "loss5"; delay = null; loss = "5"; }
+      ];
+    };
   };
 
   # Two-VM pair test (pair.nix, lib-pair.nix; uds-rdma-proxy pattern). The guests share a
