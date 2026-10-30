@@ -19,20 +19,44 @@ package require homa::lc::report
 package require homa::lc::console
 
 namespace eval ::homa::lc {
-    namespace export Table Node Batch logdir pause slurp spit utf8 withEnv
-
-    # Set by pause's timer.
-    variable paused 0
+    namespace export Table Node Batch logdir waitFor slurp spit utf8 withEnv
 }
 
-# homa::lc::pause --
+# homa::lc::waitFor --
 #
-#	Waits ms milliseconds while still handling events (QEMU's output, for
-#	one), which a plain "after ms" would not.
+#	Waits until condition is true or ms milliseconds have passed, checking
+#	it every interval milliseconds and handling the events that came in
+#	meanwhile (QEMU's output, for one), which a plain "after" would not.
+#	There is no flag to share: a wait started by an event handler during
+#	another one just runs to its own deadline, and the outer one then
+#	goes on to its own.
+#
+# Arguments:
+#	ms		how long to wait, at least 0.
+#	interval	how often to check, at least 1.
+#	condition	an expression, evaluated in the caller's scope, as
+#			while does. It is checked once more at the deadline.
+#
+# Results:
+#	1 if the condition became true, 0 if the time ran out.
 
-proc ::homa::lc::pause {ms} {
-    after $ms {set ::homa::lc::paused 1}
-    vwait ::homa::lc::paused
+proc ::homa::lc::waitFor {ms interval condition} {
+    if {![string is entier -strict $ms] || $ms < 0} {
+        return -code error "bad wait \"$ms\""
+    }
+    if {![string is entier -strict $interval] || $interval < 1} {
+        return -code error "bad interval \"$interval\""
+    }
+    set deadline [expr {[clock milliseconds] + $ms}]
+    while {![uplevel 1 [list expr $condition]]} {
+        set left [expr {$deadline - [clock milliseconds]}]
+        if {$left <= 0} {
+            return 0
+        }
+        after [expr {min($interval, $left)}]
+        update
+    }
+    return 1
 }
 
 # homa::lc::logdir --
@@ -371,20 +395,24 @@ oo::class create ::homa::lc::Table {
 #	port, logged by QEMU to serial.log from the first byte, and a root
 #	shell on hvc0 (the virtio console) on another.
 #
-#	    set node [homa::lc::Node new $table $config node0 " node0"]
+#	    set node [homa::lc::Node new $table node0 $vm $timeouts " node0"]
 #	    $node start 1
 #	    ...
-#	    $node run insmod.log 30 {insmod "$HOMA_KO"}
+#	    $node phase 4 insmod {
+#	        set result [$node run insmod.log 30 {insmod "$HOMA_KO"}]
+#	        list [dict get $result rc] ""
+#	    }
 #
-#	config is a dictionary: dir (the guest's log directory, which is also
-#	QEMU's working directory), runner (its microvm runner), serial and
-#	virtio (the console ports), and timeouts (seconds per phase: start,
-#	serial, virtio, command and exit).
+#	dir is the guest's log directory, which is also QEMU's working
+#	directory. vm is a dictionary: runner (its microvm runner), serial and
+#	virtio (the console ports). timeouts gives seconds per phase: start,
+#	serial, virtio, command and exit.
 
 oo::class create ::homa::lc::Node {
     # table		the run's homa::lc::Table.
     # suffix		appended to this node's phase names, e.g. " node0".
-    # dir, runner, serialPort, virtioPort, timeouts	from config.
+    # dir, timeouts	from the constructor.
+    # runner, serialPort, virtioPort	from vm.
     # qemu		the QEMU pipeline, "" once it has exited.
     # qemuLog		the channel its output is copied to.
     # console		the hvc0 homa::lc::Console, "" until connected.
@@ -393,12 +421,14 @@ oo::class create ::homa::lc::Node {
     variable table suffix dir runner serialPort virtioPort timeouts \
         qemu qemuLog console shell poweroffSent
 
-    constructor {phaseTable config nameSuffix} {
+    constructor {phaseTable logDir vm phaseTimeouts {nameSuffix {}}} {
         namespace path ::homa::lc
         set table $phaseTable
+        set dir $logDir
+        set timeouts $phaseTimeouts
         set suffix $nameSuffix
-        lassign [lmap key {dir runner serial virtio timeouts} {dict get $config $key}] \
-            dir runner serialPort virtioPort timeouts
+        lassign [lmap key {runner serial virtio} {dict get $vm $key}] \
+            runner serialPort virtioPort
         lassign {{} {} {} 0 0} qemu qemuLog console shell poweroffSent
     }
 
@@ -445,6 +475,21 @@ oo::class create ::homa::lc::Node {
         return 0
     }
 
+    # phase --
+    #
+    #	A phase that needs this node's shell: runs script as Table phase
+    #	does, in the caller's scope, or SKIPs it if the shell is gone.
+    #
+    # Results:
+    #	The phase's rc, or skip.
+
+    method phase {id name script} {
+        if {![my need $id $name]} {
+            return skip
+        }
+        tailcall $table phase $id $name $script
+    }
+
     # run --
     #
     #	Runs a command in the node's shell (see homa::lc::Console run) and
@@ -486,17 +531,9 @@ oo::class create ::homa::lc::Node {
             chan configure $qemuLog -translation binary
             chan event $qemu readable [namespace code {my Drain}]
             set qemuPid [pid $qemu]
-            set rc 1
-            set deadline [expr {[clock seconds] + [dict get $timeouts start]}]
-            while {$qemu ne "" && [clock seconds] < $deadline} {
-                if {![catch {socket 127.0.0.1 $virtioPort} probe]} {
-                    close $probe
-                    set rc 0
-                    break
-                }
-                pause 100
-            }
-            list $rc "qemu pid $qemuPid, consoles on $serialPort/$virtioPort"
+            set listening 0
+            waitFor [my Ms start] 100 {$qemu eq "" || [set listening [my Listening]]}
+            list [expr {!$listening}] "qemu pid $qemuPid, consoles on $serialPort/$virtioPort"
         }
     }
 
@@ -508,14 +545,7 @@ oo::class create ::homa::lc::Node {
     method serial {id} {
         $table phase $id serial$suffix {
             set first {}
-            set deadline [expr {[clock seconds] + [dict get $timeouts serial]}]
-            while {$qemu ne "" && [clock seconds] < $deadline} {
-                set first [parse firstKernelLine [slurp [file join $dir serial.log]]]
-                if {$first ne ""} {
-                    break
-                }
-                pause 200
-            }
+            waitFor [my Ms serial] 200 {$qemu eq "" || [set first [my FirstKernelLine]] ne ""}
             list [expr {$first eq ""}] "first kernel line at $first"
         }
     }
@@ -530,17 +560,11 @@ oo::class create ::homa::lc::Node {
     method virtio {id} {
         $table phase $id virtio$suffix {
             set up {}
-            set plain [join {
-                {stty -echo} PS1= PROMPT_COMMAND= {export TERM=dumb PAGER=cat SYSTEMD_PAGER=}
-            } "; "]
             if {![catch {socket 127.0.0.1 $virtioPort} chan]} {
                 set console [Console new $chan]
-                set deadline [expr {[clock seconds] + [dict get $timeouts virtio]}]
-                while {$qemu ne "" && [$console alive] && [clock seconds] < $deadline} {
-                    if {[dict get [my run virtio.log 3 $plain a] rc] == 0} {
-                        set shell 1
-                        break
-                    }
+                # Each probe waits up to 3 s for its answer.
+                waitFor [my Ms virtio] 1 {
+                    $qemu eq "" || ![$console alive] || [set shell [my Probe]]
                 }
             }
             if {$shell} {
@@ -558,10 +582,7 @@ oo::class create ::homa::lc::Node {
     #	Fails if the guest's dmesg reports a kernel bug or warning.
 
     method dmesg {id} {
-        if {![my need $id dmesg$suffix]} {
-            return
-        }
-        $table phase $id dmesg$suffix {
+        my phase $id dmesg$suffix {
             set result [my run dmesg.log [dict get $timeouts command] dmesg]
             set out [dict get $result out]
             my Report [lrange [parse oops $out] 0 4]
@@ -575,10 +596,7 @@ oo::class create ::homa::lc::Node {
     #	Sends poweroff over hvc0, without waiting.
 
     method shutdown {id} {
-        if {![my need $id shutdown$suffix]} {
-            return
-        }
-        $table phase $id shutdown$suffix {
+        my phase $id shutdown$suffix {
             set poweroffSent [$console send poweroff]
             list [expr {!$poweroffSent}] "poweroff sent over hvc0"
         }
@@ -590,10 +608,7 @@ oo::class create ::homa::lc::Node {
 
     method waitExit {id} {
         $table phase $id exit$suffix {
-            set deadline [expr {[clock seconds] + [dict get $timeouts exit]}]
-            while {$qemu ne "" && [clock seconds] < $deadline} {
-                pause 200
-            }
+            waitFor [my Ms exit] 200 {$qemu eq ""}
             if {$qemu ne ""} {
                 list 1 "still running after [dict get $timeouts exit] s"
             } elseif {!$poweroffSent} {
@@ -619,6 +634,47 @@ oo::class create ::homa::lc::Node {
     }
 
     # ---- Internals ---------------------------------------------------------------
+
+    # Ms --
+    #
+    #	Returns timeouts(key), which is in seconds, in milliseconds.
+
+    method Ms {key} {
+        return [expr {[dict get $timeouts $key] * 1000}]
+    }
+
+    # Listening --
+    #
+    #	Returns 1 if the virtio console port accepts a connection.
+
+    method Listening {} {
+        if {[catch {socket 127.0.0.1 $virtioPort} probe]} {
+            return 0
+        }
+        close $probe
+        return 1
+    }
+
+    # FirstKernelLine --
+    #
+    #	Returns the timestamp of the first kernel line in serial.log so far,
+    #	or an empty string.
+
+    method FirstKernelLine {} {
+        return [parse firstKernelLine [slurp [file join $dir serial.log]]]
+    }
+
+    # Probe --
+    #
+    #	Sends the plain-shell settings over hvc0 and returns 1 if the shell
+    #	answered them within 3 s.
+
+    method Probe {} {
+        set plain [join {
+            {stty -echo} PS1= PROMPT_COMMAND= {export TERM=dumb PAGER=cat SYSTEMD_PAGER=}
+        } "; "]
+        return [expr {[dict get [my run virtio.log 3 $plain a] rc] == 0}]
+    }
 
     # Report --
     #

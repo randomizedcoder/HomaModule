@@ -36,42 +36,37 @@ proc main {configFile} {
     puts "lifecycle[dict get $config label]: logs in $logdir"
 
     set table [homa::lc::Table new]
-    set vm [homa::lc::Node new $table [dict merge [dict get $config vm] \
-        [dict create dir . timeouts [dict get $config timeouts]]] ""]
+    set vm [homa::lc::Node new $table . [dict get $config vm] [dict get $config timeouts]]
     try {
         $vm start 1
         $vm serial 2
         $vm virtio 2b
-        if {[$vm need 3 smoke]} {
-            $table phase 3 smoke {
-                set result [$vm run smoke.log [dict get $config timeouts smoke] {homa-smoke 2>&1}]
-                set text [dict get $result out]
-                foreach line [lsearch -all -inline [split $text \n] *HOMA_SMOKE_*] {
-                    puts "    $line"
-                }
-                list [dict get $result rc] [parse smokeDetail $text [dict get $result rc]]
+        $vm phase 3 smoke {
+            set result [$vm run smoke.log [dict get $config timeouts smoke] {homa-smoke 2>&1}]
+            set text [dict get $result out]
+            foreach line [lsearch -all -inline [split $text \n] *HOMA_SMOKE_*] {
+                puts "    $line"
             }
+            list [dict get $result rc] [parse smokeDetail $text [dict get $result rc]]
         }
-        if {[$vm need 4 cycles]} {
-            # One line (a multi-line command would bring the shell's
-            # continuation prompts), in a subshell, so a failure ends the
-            # loop but not the shell.
-            set count [dict get $config moduleCycles]
-            set steps {
-                {insmod "$HOMA_KO"}
-                {ip netns add homa-lc}
-                {ip netns exec homa-lc ip link set lo up}
-                {ip netns del homa-lc}
-                {rmmod homa}
-                {echo cycle $i ok}
-            }
-            $table phase 4 cycles {
-                set loop [format {(set -e; for i in $(seq %d); do %s; done) 2>&1} \
-                    $count [join $steps "; "]]
-                set result [$vm run cycles.log [dict get $config timeouts cycles] $loop]
-                set done [parse countLines {^cycle .* ok$} [dict get $result out]]
-                list [dict get $result rc] "$done of $count"
-            }
+        # One line (a multi-line command would bring the shell's continuation
+        # prompts), in a subshell, so a failure ends the loop but not the
+        # shell.
+        set count [dict get $config moduleCycles]
+        set steps {
+            {insmod "$HOMA_KO"}
+            {ip netns add homa-lc}
+            {ip netns exec homa-lc ip link set lo up}
+            {ip netns del homa-lc}
+            {rmmod homa}
+            {echo cycle $i ok}
+        }
+        $vm phase 4 cycles {
+            set loop [format {(set -e; for i in $(seq %d); do %s; done) 2>&1} \
+                $count [join $steps "; "]]
+            set result [$vm run cycles.log [dict get $config timeouts cycles] $loop]
+            set done [parse countLines {^cycle .* ok$} [dict get $result out]]
+            list [dict get $result rc] "$done of $count"
         }
         $vm dmesg 5
         $vm shutdown 6
@@ -80,6 +75,7 @@ proc main {configFile} {
         return [$table verdict]
     } finally {
         $vm destroy
+        $table destroy
     }
 }
 
