@@ -31,12 +31,11 @@
     make checkpatch "$@"
   }
 
-  # Quick static analysis: ruff (python), shellcheck (shebang scripts), clang-format check.
+  # Quick static analysis: the analysis-quick tier (ruff, shellcheck, clang-format in the
+  # kernel's style), so the shell and the flake report the same findings.
   homa-lint() {
-    echo "== ruff =="
-    ruff check . 2>&1 | tail -n 40 || true
-    echo "== clang-format (dry-run) =="
-    clang-format --dry-run --Werror homa_*.c homa_*.h 2>&1 | tail -n 40 || true
-    echo "(shellcheck runs in: nix build .#analysis-quick)"
+    local out
+    out=$(nix build "$(git rev-parse --show-toplevel)#analysis-quick" --no-link --print-out-paths) \
+      && cat "$out/summary.txt" && echo "reports: $out"
   }
 ''

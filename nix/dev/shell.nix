@@ -31,7 +31,7 @@ pkgs.mkShell {
       homa-test           build and run the unit tests (ASan)
       homa-clean          make clean
       homa-checkpatch     run kernel checkpatch (needs a Linux source tree)
-      homa-lint           quick static analysis (ruff + shellcheck + clang-format)
+      homa-lint           the analysis-quick tier: ruff, shellcheck, clang-format
 
     The VM test drivers (nix/microvms/tcl): tclsh with Expect and tcllib, nagelfar, tclint.
       nix run .#homa-tcl-test -- -file wait.test    their tests, or some of them
