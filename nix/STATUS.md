@@ -177,7 +177,7 @@ Times: boot to both shells about 18 s; each traffic phase about 13.6 s; the whol
 | `homa-pair-test`, `homa-pair-test-<server>-<client>` | ✅ PASS for all four 6.12/7.3 pairings |
 | `homa-lifecycle`, `homa-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
 | `homa-pair-lifecycle`, `homa-pair-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
-| `tcl-tests` (check) | ✅ the Tcl drivers: 224/224 tcltest cases on Tcl 8.6 with Expect, the 148 pure ones on Tcl 9.0, nagelfar and tclint clean, oops regex in step with the guests' |
+| `tcl-tests` (check) | ✅ the Tcl drivers: 327/327 tcltest cases on Tcl 8.6 with Expect, the 205 pure ones on Tcl 9.0 (style checks included), nagelfar and tclint clean, oops regex in step with the guests' |
 
 ---
 
@@ -434,3 +434,4 @@ Round-4 candidate 5, now reproduced in VMs.
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
 | 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0). `homa-pair-lifecycle`: the pair over both consoles, with `tc netem` loss and delay phases (limit 100000); found F10. PLAN-pairs phase 5: Homa's qdisc and pacer in the pair lifecycle; reproduced round-4 candidate 5 (F11), fix as fork #23 |
 | 2026-10-30 | Refactor, same targets: the VM drivers in Tcl/Expect with table-driven tcltest suites (`tcl-tests`); flake-parts and one package scope; `homaLib` (source subsets with `lib.fileset`, `mkKbuild`, `perKernel`), `mkAnalysisTool`, one fuzz runner, `ports.nix`; the tree grouped by area, with a README per folder. Fixed on the way: `homa-utils-debug` did not link, and sparse/smatch reported 0 when kbuild could not run |
+| 2026-10-30 | Tcl review (Ousterhout-style): a phase script's `return`/`break`/`continue` are recorded and errors keep their stack (`phase-errors.log`); `Batch` restores `HOMA_VM_LOGDIR`; modules `protocol`/`parse`/`report`; `parse netemCheck`, one-pass `delta`; `waitFor`, `Node phase`, a `Pair` class; the echo count from `constants.echoRpcs`; full proc headers checked by `style.test`. The nagelfar gate in `tcl-tests` had never failed (wrong output pattern); fixed. Driver output unchanged |

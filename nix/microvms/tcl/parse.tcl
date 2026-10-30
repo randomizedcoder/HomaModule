@@ -27,7 +27,16 @@ namespace eval ::homa::lc::parse {
 
 # homa::lc::parse::firstLine --
 #
-#	Returns the first line of text (empty if text is empty).
+#	Returns the first line of text.
+#
+# Arguments:
+#	text	any text.
+#
+# Results:
+#	The first line, or an empty string if text is empty.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::firstLine {text} {
     return [lindex [split $text \n] 0]
@@ -35,7 +44,16 @@ proc ::homa::lc::parse::firstLine {text} {
 
 # homa::lc::parse::lastLine --
 #
-#	Returns the last non-empty line of text, or an empty string.
+#	Returns the last non-empty line of text.
+#
+# Arguments:
+#	text	any text.
+#
+# Results:
+#	The last non-empty line, or an empty string if there is none.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::lastLine {text} {
     return [lindex [lsearch -all -inline -not -exact [split $text \n] {}] end]
@@ -45,6 +63,15 @@ proc ::homa::lc::parse::lastLine {text} {
 #
 #	Splits text into its lines. Unlike split alone, trailing newlines do not
 #	start more (empty) lines.
+#
+# Arguments:
+#	text	any text.
+#
+# Results:
+#	A list of the lines.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::lines {text} {
     return [split [string trimright $text \n] \n]
@@ -52,7 +79,17 @@ proc ::homa::lc::parse::lines {text} {
 
 # homa::lc::parse::countLines --
 #
-#	Returns how many lines of text match the regular expression re.
+#	Counts the lines of text that match a regular expression.
+#
+# Arguments:
+#	re	the regular expression.
+#	text	the text to search.
+#
+# Results:
+#	How many lines of text match re.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::countLines {re text} {
     return [llength [lsearch -all -regexp [split $text \n] $re]]
@@ -62,8 +99,17 @@ proc ::homa::lc::parse::countLines {re text} {
 
 # homa::lc::parse::firstKernelLine --
 #
-#	Returns the timestamp of the first kernel message in a serial log, e.g.
-#	"[    2.179107]", or an empty string if the kernel has printed nothing yet.
+#	Finds the first kernel message in a serial log.
+#
+# Arguments:
+#	text	the serial log.
+#
+# Results:
+#	The message's timestamp, e.g. "[    2.179107]", or an empty string if
+#	the kernel has printed nothing yet.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::firstKernelLine {text} {
     if {[regexp -line {^\[ *[0-9]+\.[0-9]+\]} $text stamp]} {
@@ -80,6 +126,12 @@ proc ::homa::lc::parse::firstKernelLine {text} {
 #	text	dmesg or serial console output.
 #	also	a regular expression for more lines to return with them, in
 #		order (e.g. "RIP:", which names the faulting function).
+#
+# Results:
+#	A list of the matching lines, in order.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::oops {text {also {}}} {
     variable oopsRe
@@ -89,7 +141,16 @@ proc ::homa::lc::parse::oops {text {also {}}} {
 
 # homa::lc::parse::oopsCount --
 #
-#	Returns how many lines of text report a kernel bug or warning.
+#	Counts the lines of text that report a kernel bug or warning.
+#
+# Arguments:
+#	text	dmesg or serial console output.
+#
+# Results:
+#	How many lines of text report a kernel bug or warning.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::oopsCount {text} {
     return [llength [oops $text]]
@@ -97,12 +158,18 @@ proc ::homa::lc::parse::oopsCount {text} {
 
 # homa::lc::parse::smokeDetail --
 #
-#	Returns the detail for the smoke phase: homa-smoke's last verdict, or the
-#	last step it reached when it gave none.
+#	Returns the detail for the smoke phase.
 #
 # Arguments:
 #	text	homa-smoke's output.
 #	rc	the console's result for the command.
+#
+# Results:
+#	homa-smoke's last verdict, or the last step it reached when it gave
+#	none.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::smokeDetail {text rc} {
     set verdicts [regexp -all -inline {HOMA_SMOKE_(?:PASS|FAIL:[A-Z_]+)} $text]
@@ -124,6 +191,12 @@ proc ::homa::lc::parse::smokeDetail {text rc} {
 # Arguments:
 #	text	homa-node-stats output.
 #	keys	the counters to keep, in order.
+#
+# Results:
+#	A dictionary of counter name -> sum, in the order of keys.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::snap {text keys} {
     set sums [dict create]
@@ -142,8 +215,19 @@ proc ::homa::lc::parse::snap {text keys} {
 
 # homa::lc::parse::delta --
 #
-#	Returns the counters that changed between two snaps, as after - before.
+#	Computes the counters that changed between two snaps, as after - before.
 #	A counter missing from either side counts as 0.
+#
+# Arguments:
+#	before	the earlier snap (a dictionary of counters).
+#	after	the later snap.
+#
+# Results:
+#	A dictionary of each changed counter -> its difference, in before's
+#	order, then any counters only in after.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::delta {before after} {
     # In the first snap's order, then any new counters: a key seen twice
@@ -160,7 +244,17 @@ proc ::homa::lc::parse::delta {before after} {
 
 # homa::lc::parse::get --
 #
-#	Returns counter key from a dictionary of counters, or 0.
+#	Looks up one counter.
+#
+# Arguments:
+#	counters	a dictionary of counters.
+#	key	the counter's name.
+#
+# Results:
+#	Counter key from counters, or 0 if it is missing.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::get {counters key} {
     if {[dict exists $counters $key]} {
@@ -173,8 +267,19 @@ proc ::homa::lc::parse::get {counters key} {
 
 # homa::lc::parse::field --
 #
-#	Returns the word after word in a cp_node stats line (e.g. "clients:" for
-#	Kops/s, "P50", "P99"), or missing if there is none.
+#	Finds the word after word in a cp_node stats line (e.g. "clients:" for
+#	Kops/s, "P50", "P99").
+#
+# Arguments:
+#	line	the stats line.
+#	word	the word before the value.
+#	missing	what to return if there is none; "-" by default.
+#
+# Results:
+#	The word after word, or missing if there is none.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::field {line word {missing -}} {
     set words [regexp -all -inline {\S+} $line]
@@ -187,7 +292,16 @@ proc ::homa::lc::parse::field {line word {missing -}} {
 
 # homa::lc::parse::positive --
 #
-#	Returns 1 if value is a number above zero, 0 otherwise (including "-").
+#	Tells whether value is a number above zero.
+#
+# Arguments:
+#	value	any string.
+#
+# Results:
+#	1 if value is a number above zero, 0 otherwise (including "-").
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::positive {value} {
     return [expr {[string is double -strict $value] && $value > 0}]
@@ -195,15 +309,22 @@ proc ::homa::lc::parse::positive {value} {
 
 # homa::lc::parse::trafficFailures --
 #
-#	Returns what failed in one traffic run: "echo" unless every echo RPC
-#	completed, "homa" or "tcp" unless that cp_node run timed any RPC (a P99
-#	above 0; at 5 % loss TCP manages so few RPCs that its Kops/s rounds to 0).
+#	Judges one traffic run: "echo" fails unless every echo RPC completed,
+#	"homa" or "tcp" unless that cp_node run timed any RPC (a P99 above 0; at
+#	5 % loss TCP manages so few RPCs that its Kops/s rounds to 0).
 #
 # Arguments:
 #	want	how many echo RPCs demo_client1 sends (constants.echoRpcs).
 #	echoes	how many echo responses arrived.
 #	homa	cp_node's last stats line over Homa.
 #	tcp	cp_node's last stats line over TCP.
+#
+# Results:
+#	A list of what failed: any of echo, homa and tcp, in that order. An
+#	error if want is not an integer.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::trafficFailures {want echoes homa tcp} {
     if {![string is entier -strict $want]} {
@@ -225,8 +346,17 @@ proc ::homa::lc::parse::trafficFailures {want echoes homa tcp} {
 
 # homa::lc::parse::netemSent --
 #
-#	Returns {packets drops} from the netem qdisc in "tc -s qdisc show"
-#	output, or an empty list if there is no netem qdisc with counters.
+#	Reads the netem qdisc's counters from "tc -s qdisc show" output.
+#
+# Arguments:
+#	text	"tc -s qdisc show" output.
+#
+# Results:
+#	{packets drops} from the netem qdisc, or an empty list if there is no
+#	netem qdisc with counters.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::netemSent {text} {
     set re {^qdisc netem [^\n]*\n Sent \d+ bytes (\d+) pkt \(dropped (\d+),}
@@ -253,6 +383,9 @@ proc ::homa::lc::parse::netemSent {text} {
 #
 # Results:
 #	A dictionary: rate (percent, two decimals) and ok (1 or 0).
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::dropRate {packets drops loss} {
     foreach count [list $packets $drops] {
@@ -288,6 +421,9 @@ proc ::homa::lc::parse::dropRate {packets drops loss} {
 # Results:
 #	A dictionary: ok (1 or 0) and report, e.g. "node1 4559/100969
 #	(4.52%)" or "node1 ?/0 (0.00%)".
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::netemCheck {node text loss} {
     set sent [netemSent $text]
@@ -304,8 +440,18 @@ proc ::homa::lc::parse::netemCheck {node text loss} {
 
 # homa::lc::parse::netemLimitOk --
 #
-#	Returns 1 if "tc qdisc show" output has a netem qdisc with exactly the
-#	given limit, 0 otherwise.
+#	Checks that "tc qdisc show" output has a netem qdisc with exactly the
+#	given limit.
+#
+# Arguments:
+#	text	"tc qdisc show" output.
+#	limit	the expected limit, in packets.
+#
+# Results:
+#	1 if it does, 0 otherwise. An error if limit is not an integer.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::netemLimitOk {text limit} {
     if {![string is entier -strict $limit]} {
@@ -316,8 +462,17 @@ proc ::homa::lc::parse::netemLimitOk {text limit} {
 
 # homa::lc::parse::netemDetail --
 #
-#	Returns the netem qdisc's settings from "tc qdisc show" output, without
-#	tc's "qdisc netem <handle>: root refcnt <n>" prefix.
+#	Reads the netem qdisc's settings from "tc qdisc show" output.
+#
+# Arguments:
+#	text	"tc qdisc show" output.
+#
+# Results:
+#	The settings, without tc's "qdisc netem <handle>: root refcnt <n>"
+#	prefix, or an empty string if there is no netem qdisc.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::parse::netemDetail {text} {
     set re {^qdisc netem [0-9a-f]*: root refcnt [0-9]* ([^\n]*)}

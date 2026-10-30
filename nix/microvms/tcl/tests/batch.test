@@ -30,7 +30,7 @@ proc runBatch {limit tests} {
             lassign $test testName script
             set path [file join $logdir $testName.sh]
             if {$script ne "missing"} {
-                homa::lc::spit $path "#!/bin/sh\n$script"
+                homa::lc::writeFile $path "#!/bin/sh\n$script"
                 file attributes $path -permissions 0755
             }
             dict create name $testName exe $path
@@ -43,7 +43,7 @@ proc runBatch {limit tests} {
         }
         return [lmap test $tests {
             set name [lindex $test 0]
-            set out [homa::lc::slurp [file join $logdir $name.out]]
+            set out [homa::lc::readFile [file join $logdir $name.out]]
             string map [list $logdir LOGDIR] [list $name [lindex [dict get $results $name] 0] \
                 [string trimright $out \n]]
         }]

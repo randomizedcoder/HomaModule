@@ -124,26 +124,26 @@ HOMA_SMOKE_GRO homa_gro_receive calls=1722
 VERDICT: PASS"
 
 # The input is {name kernels secs want out}.
-testTable matrixRow [list \
-    [list "a pair test" positive [list homa-pair-test-7_3-7_3 {7_3 → 7_3} 65 6 $pairOut] ok \
+testTable matrixRow [subst {
+    {"a pair test" positive {homa-pair-test-7_3-7_3 {7_3 → 7_3} 65 6 {$pairOut}} ok
         {verdict PASS row {| homa-pair-test-7_3-7_3 | 7_3 → 7_3 | PASS | 65 | 6/6 | — |\
-            0.40 | 148.99 / 26162.00 | 0.39 | 410.63 / 27362.55 |}}] \
-    [list "a single-VM test has no cp_node" positive \
-        [list homa-microvm-test-7_3 7_3 51 6 $smokeOut] ok \
+            0.40 | 148.99 / 26162.00 | 0.39 | 410.63 / 27362.55 |}}}
+    {"a single-VM test has no cp_node" positive
+        {homa-microvm-test-7_3 7_3 51 6 {$smokeOut}} ok
         {verdict PASS row {| homa-microvm-test-7_3 | 7_3 | PASS | 51 | 6/6 | 1722 |\
-            — | — / — | — | — / — |}}] \
-    [list "a failed run" negative [list t 7_3 9 6 "VERDICT: FAIL (3 phases)"] ok \
-        {verdict FAIL row {| t | 7_3 | FAIL | 9 | 0/6 | — | — | — / — | — | — / — |}}] \
-    [list "a run with no output" boundary [list t 7_3 0 6 {}] ok \
-        {verdict FAIL row {| t | 7_3 | FAIL | 0 | 0/6 | — | — | — / — | — | — / — |}}] \
-    [list "VERDICT: PASS must start a line" corner [list t 7_3 1 6 "x VERDICT: PASS"] ok \
-        {verdict FAIL row {| t | 7_3 | FAIL | 1 | 0/6 | — | — | — / — | — | — / — |}}] \
-    [list "the cell shows the wanted count" positive \
-        [list t 7_3 2 3 "HOMA_SMOKE_ECHO responses=3 (want 3)\nVERDICT: PASS"] ok \
-        {verdict PASS row {| t | 7_3 | PASS | 2 | 3/3 | — | — | — / — | — | — / — |}}] \
-    [list "a missing count shows 0 of the wanted count" negative \
-        [list t 7_3 2 3 "VERDICT: PASS"] ok \
-        {verdict PASS row {| t | 7_3 | PASS | 2 | 0/3 | — | — | — / — | — | — / — |}}] \
-] {report matrixRow {*}$input}
+            — | — / — | — | — / — |}}}
+    {"a failed run" negative {t 7_3 9 6 "VERDICT: FAIL (3 phases)"} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 9 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"a run with no output" boundary {t 7_3 0 6 {}} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 0 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"VERDICT: PASS must start a line" corner {t 7_3 1 6 "x VERDICT: PASS"} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 1 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"the cell shows the wanted count" positive
+        {t 7_3 2 3 "HOMA_SMOKE_ECHO responses=3 (want 3)\nVERDICT: PASS"} ok
+        {verdict PASS row {| t | 7_3 | PASS | 2 | 3/3 | — | — | — / — | — | — / — |}}}
+    {"a missing count shows 0 of the wanted count" negative
+        {t 7_3 2 3 "VERDICT: PASS"} ok
+        {verdict PASS row {| t | 7_3 | PASS | 2 | 0/3 | — | — | — / — | — | — / — |}}}
+}] {report matrixRow {*}$input}
 
 tcltest::cleanupTests

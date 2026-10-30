@@ -31,6 +31,12 @@ namespace eval ::homa::lc::report {
 #
 # Arguments:
 #	rc	0, any other exit status, or "skip".
+#
+# Results:
+#	PASS, SKIP or FAIL. An error if rc is neither an integer nor "skip".
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::verdict {rc} {
     if {$rc eq "skip"} {
@@ -44,9 +50,19 @@ proc ::homa::lc::report::verdict {rc} {
 
 # homa::lc::report::combine --
 #
-#	Combines the results of several commands in one phase: returns next if
-#	it failed (is not 0), else rc. Folded over the commands, this gives the
-#	last failure, or 0.
+#	Combines the results of several commands in one phase. Folded over the
+#	commands, this gives the last failure, or 0.
+#
+# Arguments:
+#	rc	the result so far.
+#	next	the next command's exit status.
+#
+# Results:
+#	next if it failed (is not 0), else rc. An error if either is not an
+#	integer.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::combine {rc next} {
     foreach value [list $rc $next] {
@@ -60,6 +76,19 @@ proc ::homa::lc::report::combine {rc next} {
 # homa::lc::report::phaseLine --
 #
 #	Returns the progress line printed when a phase ends.
+#
+# Arguments:
+#	phase	the phase's number.
+#	name	the phase's name.
+#	verdict	PASS, SKIP or FAIL.
+#	ms	how long it took, in milliseconds.
+#	detail	what to add after the verdict, or "".
+#
+# Results:
+#	The line, e.g. "  phase 3 smoke: PASS (120 ms): ...".
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::phaseLine {phase name verdict ms detail} {
     set line "  phase $phase $name: $verdict ($ms ms)"
@@ -72,6 +101,19 @@ proc ::homa::lc::report::phaseLine {phase name verdict ms detail} {
 # homa::lc::report::tableRow --
 #
 #	Returns a phase's row in summary.md (a Markdown table).
+#
+# Arguments:
+#	phase	the phase's number.
+#	name	the phase's name.
+#	verdict	PASS, SKIP or FAIL.
+#	ms	how long it took, in milliseconds.
+#	detail	the phase's detail; any "|" in it is escaped.
+#
+# Results:
+#	The Markdown table row.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::tableRow {phase name verdict ms detail} {
     set detail [string map {| \\|} $detail]
@@ -82,7 +124,16 @@ proc ::homa::lc::report::tableRow {phase name verdict ms detail} {
 
 # homa::lc::report::deltaLine --
 #
-#	Formats counters as "name=value" pairs for the deltas log.
+#	Formats counters for the deltas log.
+#
+# Arguments:
+#	counters	a dictionary of counter name -> value.
+#
+# Results:
+#	The counters as space-separated "name=value" pairs.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::deltaLine {counters} {
     return [join [lmap {key value} $counters {string cat $key = $value}]]
@@ -107,6 +158,9 @@ proc ::homa::lc::report::deltaLine {counters} {
 # Results:
 #	A dictionary: failed (what failed, from parse trafficFailures, then
 #	drops-<node> and no-<counter>) and detail (the phase's detail).
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::trafficDetail {measured want must} {
     lassign [lmap key {echoes homa tcp deltas checks} {dict get $measured $key}] \
@@ -141,8 +195,17 @@ proc ::homa::lc::report::trafficDetail {measured want must} {
 
 # homa::lc::report::sum --
 #
-#	Returns counter key summed over every node's deltas (a dictionary of
-#	node name -> counters); 0 if there are none.
+#	Sums one counter over every node's deltas.
+#
+# Arguments:
+#	deltas	a dictionary of node name -> counters.
+#	key	the counter's name.
+#
+# Results:
+#	Counter key summed over the nodes; 0 if there are none.
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::sum {deltas key} {
     return [tcl::mathop::+ {*}[lmap {node counters} $deltas {parse get $counters $key}]]
@@ -164,6 +227,9 @@ proc ::homa::lc::report::sum {deltas key} {
 #
 # Results:
 #	A dictionary: verdict (PASS or FAIL) and row (the Markdown table row).
+#
+# Side effects:
+#	None.
 
 proc ::homa::lc::report::matrixRow {name kernels secs want out} {
     variable dash
