@@ -6,7 +6,7 @@ no trace.
 
 | File | In the scope as | What it is |
 |---|---|---|
-| `packages.nix` | `packagesModule` | the tool lists: build inputs, analysis and debugging tools, and `pythonEnv` (python3 with the packages Homa's scripts import) |
+| `packages.nix` | `packagesModule` | the tool lists: build inputs, analysis and debugging tools, `pythonEnv` (python3 with the packages Homa's scripts import), and the Tcl drivers' tools (Tcl 8.6, Expect, tcllib, nagelfar, tclint; Tcl's setup hook sets `TCLLIBPATH`) |
 | `env-vars.nix` | `envVars` | shell code that exports `KDIR`, `LINUX_VERSION`, `ARCH`, and puts `pythonEnv` first on `PATH` |
 | `shell-functions/` | `shellFunctions` | `homa-build`, `homa-test`, `homa-clean`, `homa-checkpatch`, `homa-lint` |
 | `shell.nix` | `devShell` | the `mkShell` that puts them together |

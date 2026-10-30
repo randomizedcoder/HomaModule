@@ -14,7 +14,7 @@ namespace eval ::homa::lc {
     namespace export report
 }
 namespace eval ::homa::lc::report {
-    namespace export verdict combine phaseLine tableRow deltaLine trafficDetail matrixRow
+    namespace export verdict combine phaseLine tableRow deltaLine trafficDetail matrixRow diff
     namespace ensemble create
     # Find parse (for field).
     namespace path ::homa::lc
@@ -245,6 +245,66 @@ proc ::homa::lc::report::matrixRow {name kernels secs want out} {
             "[parse field $line P50 $dash] / [parse field $line P99 $dash]"
     }
     return [dict create verdict $result row "| [join $cells { | }] |"]
+}
+
+# ---- homa-vm-compare -----------------------------------------------------------------
+
+# homa::lc::report::diff --
+#
+#	Lists the changes between two lists of lines, by their longest common
+#	subsequence (the lists are a run's phase lines: a hundred or so).
+#
+# Arguments:
+#	old	the lines before.
+#	new	the lines after.
+#
+# Results:
+#	The changes in order, each "- <line>" (only in old) or "+ <line>"
+#	(only in new), removals before additions where a line was replaced;
+#	an empty list if the lists are equal.
+#
+# Side effects:
+#	None.
+
+proc ::homa::lc::report::diff {old new} {
+    set n [llength $old]
+    set m [llength $new]
+    # common(i,j): the length of the longest common subsequence of
+    # old[i..] and new[j..].
+    for {set i $n} {$i >= 0} {incr i -1} {
+        for {set j $m} {$j >= 0} {incr j -1} {
+            if {$i == $n || $j == $m} {
+                set common($i,$j) 0
+            } elseif {[lindex $old $i] eq [lindex $new $j]} {
+                set common($i,$j) [expr {$common([expr {$i + 1}],[expr {$j + 1}]) + 1}]
+            } else {
+                set common($i,$j) [expr {max($common([expr {$i + 1}],$j),
+                    $common($i,[expr {$j + 1}]))}]
+            }
+        }
+    }
+    set changes {}
+    set i 0
+    set j 0
+    while {$i < $n && $j < $m} {
+        if {[lindex $old $i] eq [lindex $new $j]} {
+            incr i
+            incr j
+        } elseif {$common([expr {$i + 1}],$j) >= $common($i,[expr {$j + 1}])} {
+            lappend changes "- [lindex $old $i]"
+            incr i
+        } else {
+            lappend changes "+ [lindex $new $j]"
+            incr j
+        }
+    }
+    foreach line [lrange $old $i end] {
+        lappend changes "- $line"
+    }
+    foreach line [lrange $new $j end] {
+        lappend changes "+ $line"
+    }
+    return $changes
 }
 
 package provide homa::lc::report 1.0

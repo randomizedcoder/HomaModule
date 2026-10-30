@@ -13,6 +13,8 @@ KVM (`/dev/kvm`) and some localhost ports.
 | `homa-pair-lifecycle[-<series>]` | 2 | the pair, driven over both nodes' consoles: traffic, netem loss and delay, Homa's qdisc |
 | `homa-pair-exp[-socket]` | 2 | a latency sweep over sysctl settings ([`../STATUS.md`](../STATUS.md) F2) |
 | `homa-vm-matrix` | all | every per-kernel test and every pair at once, and a summary table |
+| `homa-vm-compare old new` | — | two matrix runs' logs, test by test: phase ids, names and verdicts, `HOMA_*` lines, `VERDICT` |
+| `homa-tcl-test`, `homa-tcl-lint` | — | the drivers' tests (all, or `-file`/`-match`) and lint ([`tcl/README.md`](tcl/README.md)) |
 | `homa-microvm[-<series>]` | 1 | an interactive guest (root, no password) |
 
 `<series>` is each kernel in `vmSeries` ([`../kernel/config.nix`](../kernel/config.nix));

@@ -220,6 +220,7 @@ testTable sources {
     {"bin/lifecycle.tcl" positive bin/lifecycle.tcl ok {{} {}}}
     {"bin/pair-lifecycle.tcl" positive bin/pair-lifecycle.tcl ok {{} {}}}
     {"bin/vm-matrix.tcl" positive bin/vm-matrix.tcl ok {{} {}}}
+    {"bin/vm-compare.tcl" positive bin/vm-compare.tcl ok {{} {}}}
 } {
     set chan [open [file join [file dirname $::here] $input]]
     try {

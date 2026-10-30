@@ -30,18 +30,28 @@ let
 
   # C/C++ static-analysis + formatting tools. `smatch` is not in every nixpkgs, so guard it.
   cTools = [
-    pkgs.clang-tools     # clang-tidy, clang-format
+    pkgs.clang-tools # clang-tidy, clang-format
     pkgs.cppcheck
     pkgs.sparse
-    pkgs.bear            # compile_commands.json generation
+    pkgs.bear # compile_commands.json generation
     pkgs.gdb
   ] ++ lib.optional (pkgs ? smatch) pkgs.smatch;
 
   pyTools = [ pkgs.ruff pkgs.mypy ];
   shTools = [ pkgs.shellcheck pkgs.shfmt ];
-  docTools = [ pkgs.groff pkgs.ghostscript ];   # man/ PDF generation
+  docTools = [ pkgs.groff pkgs.ghostscript ]; # man/ PDF generation
 
-  devTools = cTools ++ pyTools ++ shTools ++ docTools ++ [ pythonEnv ];
+  # The VM test drivers (nix/microvms/tcl): Tcl 8.6 with Expect and tcllib, and the two
+  # linters. Tcl's setup hook puts expect's and tcllib's lib on TCLLIBPATH.
+  tclTools = [
+    pkgs.tcl
+    pkgs.expect
+    pkgs.tclPackages.tcllib
+    pkgs.nagelfar
+    pkgs.tclint
+  ];
+
+  devTools = cTools ++ pyTools ++ shTools ++ docTools ++ tclTools ++ [ pythonEnv ];
 
   allPackages = nativeBuildInputs ++ buildInputs ++ devTools;
 in

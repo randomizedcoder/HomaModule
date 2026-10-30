@@ -230,6 +230,8 @@ in
     # The Tcl drivers' tests and lint, for running by hand (tcl.nix, ../tcl/README.md).
     homa-tcl-test = tclApps.test;
     homa-tcl-lint = tclApps.lint;
+    # Two matrix runs' logs, phase by phase: homa-vm-compare old-logdir new-logdir.
+    homa-vm-compare = tclApps.mkTclApp { name = "homa-vm-compare"; driver = "vm-compare.tcl"; };
   } // perKernel // perPair;
 
   # The Tcl drivers' tests and lint (tcl.nix).

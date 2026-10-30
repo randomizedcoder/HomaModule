@@ -244,4 +244,39 @@ testTable netemDetail {
     {"empty output" boundary {} ok {}}
 } {parse netemDetail $input}
 
+# ---- A driver's output, for homa-vm-compare ---------------------------------------
+
+testTable shape {
+    {"a phase line keeps its id, name and verdict" positive
+        {  phase 3 smoke: PASS (120 ms): HOMA_SMOKE_PASS} ok {{phase 3 smoke: PASS}}}
+    {"a phase without a detail" boundary
+        {  phase 13 stop servers: PASS (1171 ms)} ok {{phase 13 stop servers: PASS}}}
+    {"a sub-phase whose name has numbers" corner
+        {  phase 8.2 traffic loss0.1: FAIL (13633 ms): echo 0/6} ok
+        {{phase 8.2 traffic loss0.1: FAIL}}}
+    {"a skipped phase" positive
+        {  phase 15 dmesg node0: SKIP (0 ms): no shell on hvc0} ok
+        {{phase 15 dmesg node0: SKIP}}}
+    {"a guest's HOMA line loses its prefix, with numbers masked" positive
+        {[   42.824466] homa-smoke[545]: HOMA_SMOKE_ECHO responses=6 (want 6)} ok
+        {{HOMA_SMOKE_ECHO responses=N (want N)}}}
+    {"cp_node's line: decimals and numbers inside words are masked" corner
+        {HOMA_PAIR_CPNODE_homa 1793386978.012646352 homa_w4 clients: 0.39 Kops/sec} ok
+        {{HOMA_PAIR_CPNODE_homa N homa_wN clients: N Kops/sec}}}
+    {"the verdict is kept as it is, counts included" positive
+        {VERDICT: FAIL (8 phases)} ok {{VERDICT: FAIL (8 phases)}}}
+    {"table rows, counters and other lines are dropped" negative {
+| 3 | smoke | PASS | 120 | HOMA_SMOKE_PASS |
+    node0: packets_sent_DATA=94551
+pair lifecycle-7_3: logs in /tmp/x} ok {}}
+    {"VERDICT must start a line" corner {x VERDICT: PASS} ok {}}
+    {"no output" boundary {} ok {}}
+    {"several lines keep their order" positive {pair lifecycle: logs in /tmp/x
+  phase 1 start: PASS (101 ms): qemu pid 1, consoles on 2/3
+HOMA_PAIR_ECHO responses=6
+  phase 13 stop: PASS (1207 ms)
+VERDICT: PASS} ok
+        {{phase 1 start: PASS} {HOMA_PAIR_ECHO responses=N} {phase 13 stop: PASS} {VERDICT: PASS}}}
+} {parse shape $input}
+
 tcltest::cleanupTests

@@ -16,7 +16,7 @@ namespace eval ::homa::lc {
 namespace eval ::homa::lc::parse {
     namespace export firstLine lastLine lines countLines firstKernelLine oops \
         smokeDetail snap delta get field positive trafficFailures netemSent \
-        dropRate netemCheck netemLimitOk netemDetail oopsCount
+        dropRate netemCheck netemLimitOk netemDetail oopsCount shape
     namespace ensemble create
 
     # Kernel messages that fail the dmesg and serial-log phases.
@@ -480,6 +480,40 @@ proc ::homa::lc::parse::netemDetail {text} {
         return $settings
     }
     return {}
+}
+
+# ---- A driver's output ----------------------------------------------------------
+
+# homa::lc::parse::shape --
+#
+#	Reduces a driver's output (a <test>.out file of homa-vm-matrix) to the
+#	lines two good runs share, for homa-vm-compare: each phase's id, name
+#	and verdict, the HOMA_* lines with their numbers masked, and the
+#	VERDICT lines. Times, details, counters and the summary table vary
+#	from run to run and are dropped.
+#
+# Arguments:
+#	text	the output.
+#
+# Results:
+#	A list of lines: "phase <id> <name>: <verdict>", "HOMA_..." with each
+#	number (decimals too) replaced by N, and "VERDICT: ..." as it is.
+#
+# Side effects:
+#	None.
+
+proc ::homa::lc::parse::shape {text} {
+    set lines {}
+    foreach line [split $text \n] {
+        if {[regexp {^\s*phase (\S+) (.*?): (PASS|FAIL|SKIP) \(\d+ ms\)} $line -> id name result]} {
+            lappend lines "phase $id $name: $result"
+        } elseif {[regexp {^VERDICT: } $line]} {
+            lappend lines $line
+        } elseif {![string match |* $line] && [regexp {HOMA_[A-Z0-9_]+.*} $line homa]} {
+            lappend lines [regsub -all {\d+(?:\.\d+)?} $homa N]
+        }
+    }
+    return $lines
 }
 
 package provide homa::lc::parse 1.0

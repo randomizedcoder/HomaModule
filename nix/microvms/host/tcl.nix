@@ -2,8 +2,8 @@
 #
 # Packages the Tcl/Expect drivers in ../tcl (see ../tcl/README.md):
 #
-#   mkTclApp { name, driver, config }   bin/<name>: runs ../tcl/bin/<driver> with config, an
-#                                       attribute set written out as JSON
+#   mkTclApp { name, driver, config? }  bin/<name>: runs ../tcl/bin/<driver> with config, an
+#                                       attribute set written out as JSON, if it is given
 #   test                                homa-tcl-test: the tcltest suite, or part of it
 #   lint                                homa-tcl-lint: nagelfar, tclint, the oops regex
 #   tests                               the check: lint, the suite under Tcl 8.6 (with
@@ -117,9 +117,11 @@ in
 {
   inherit src lint test;
 
-  mkTclApp = { name, driver, config }:
+  # Without a config, the driver gets only the command line's arguments.
+  mkTclApp = { name, driver, config ? null }:
     let
       configFile = pkgs.writeText "${name}.json" (builtins.toJSON config);
+      configArg = lib.optionalString (config != null) configFile;
     in
     pkgs.writeTextFile {
       inherit name;
@@ -127,11 +129,11 @@ in
       destination = "/bin/${name}";
       text = ''
         #!${tcl}/bin/tclsh
-        # ${name}: runs ${driver} (nix/microvms/tcl/bin) with ${configFile}.
+        # ${name}: runs ${driver} (nix/microvms/tcl/bin)${lib.optionalString (config != null) " with ${configFile}"}.
         set env(PATH) ${lib.makeBinPath [ pkgs.coreutils ]}:$env(PATH)
         set auto_path [list ${lib.concatStringsSep " " autoPath} {*}$auto_path]
         package require homa::lc
-        set argv [list ${configFile} {*}$argv]
+        set argv [list ${configArg} {*}$argv]
         homa::lc::utf8 stdout
         source ${src}/bin/${driver}
       '';

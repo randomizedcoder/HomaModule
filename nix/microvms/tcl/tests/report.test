@@ -146,4 +146,23 @@ testTable matrixRow [subst {
         {verdict PASS row {| t | 7_3 | PASS | 2 | 0/3 | — | — | — / — | — | — / — |}}}
 }] {report matrixRow {*}$input}
 
+# ---- homa-vm-compare ------------------------------------------------------------------
+
+# The input is {old new}, two lists of lines.
+testTable diff {
+    {"the same lines" positive {{a b c} {a b c}} ok {}}
+    {"a changed verdict" negative
+        {{{phase 3 smoke: PASS} b} {{phase 3 smoke: FAIL} b}} ok
+        {{- phase 3 smoke: PASS} {+ phase 3 smoke: FAIL}}}
+    {"a line added in the middle" positive {{a b} {a c b}} ok {{+ c}}}
+    {"a line removed" positive {{a b c} {a c}} ok {{- b}}}
+    {"both empty" boundary {{} {}} ok {}}
+    {"nothing before" boundary {{} {a b}} ok {{+ a} {+ b}}}
+    {"nothing after" boundary {{a} {}} ok {{- a}}}
+    {"a repeated line, once fewer" corner {{a a b} {a b}} ok {{- a}}}
+    {"two lines swapped" corner {{a b} {b a}} ok {{- a} {+ a}}}
+    {"lines with spaces are compared whole" corner
+        {{{phase 1 a: PASS}} {{phase 1 a: PASS}}} ok {}}
+} {report diff {*}$input}
+
 tcltest::cleanupTests
