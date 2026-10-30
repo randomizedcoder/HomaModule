@@ -1,4 +1,4 @@
-# nix/microvms/lifecycle.nix
+# nix/microvms/host/lifecycle.nix
 #
 # Lifecycle test (pcp/xdp2 pattern): the host boots a guest with two consoles (mkVm.nix
 # consolePorts) and drives it phase by phase, with a timeout and a time for each. The

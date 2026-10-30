@@ -21,7 +21,7 @@
 #   nix build .#homa-tests                 # build + run the unit tests (ASan)
 #
 #   nix run   .#homa-microvm-test          # boot a microVM, insmod homa.ko, loopback echo RPCs
-#   nix run   .#homa-microvm-test-6_12     # ... per VM kernel: 6_12 7_3 (kernel.nix vmSeries)
+#   nix run   .#homa-microvm-test-6_12     # ... per VM kernel: 6_12 7_3 (kernel/config.nix vmSeries)
 #   nix run   .#homa-microvm-test-debug    # ... under a KASAN/KMEMLEAK kernel
 #   nix run   .#homa-lifecycle[-6_12]      # timed phases driven over ttyS0 + a virtio console
 #   nix run   .#homa-pair-test             # two VMs: echo + cp_node (Homa, TCP) over a link

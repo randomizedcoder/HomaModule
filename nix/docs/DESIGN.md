@@ -47,22 +47,22 @@ nix/
   STATUS.md                   # status per kernel/target, findings, follow-ups
   docs/
     DESIGN.md                 # this file
-  kernel.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
-  kernel-src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
+  kernel/config.nix                  # kernelPackages selection (linux_latest) + KDIR + per-series matrix
+  kernel/src.nix              # prepared kernel trees from kernel.org tarballs / a local checkout
   patches/                    # upstream-pending fixes applied to the Homa source (homaLib.src)
   packages.nix                # nativeBuildInputs / buildInputs / devTools / pythonEnv / allPackages
   env-vars.nix                # shell env fragment (CC/CXX, KDIR, ARCH, PYTHON)
   module.nix                  # homa.ko derivation, enableDebug switch  -> homa-module[-debug|-<series>],
                               #   homa-build-matrix
   userspace.nix               # util/ + test/ derivations              -> homa-utils[-debug], homa-tests
-  devshell.nix                # mkShell composing the above
+  dev/shell.nix                # mkShell composing the above
   shell-functions/*.nix       # bash helper fragments (homa-build/test/clean/checkpatch/lint)
   oci.nix                     # userspace OCI image                    -> homa-image[-debug]
   microvms/
     constants.nix             # hostname, resources, timeouts
     mkVm.nix                  # parameterised guest (kernelPackages, 9p store, HOMA_KO, autoTest)
     smoke.nix                 # in-guest smoke test (systemd oneshot, sentinels on the console)
-    lib.nix                   # host runner: boot, capture console, grep sentinels -> verdict
+    smoke-test.nix                   # host runner: boot, capture console, grep sentinels -> verdict
     default.nix               # assembly -> per-kernel microvm packages + test runners
   analysis/
     default.nix               # composition root: analysis-quick|standard|deep + summary.txt
@@ -103,7 +103,7 @@ A single derivation module is instantiated twice via a boolean, mirroring xdp2's
 
 ## 5. Kernel pinning strategy
 
-`kernel.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
+`kernel/config.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
 default `kernelPackages = pkgs.linuxPackages_latest` (7.3), overridable, because Homa is
 being ported forward to 7.x. Every derivation builds a subset of the source from
 `homaLib.src` (`nix/lib`) rather than `self`, with `nix/patches/` applied: they can carry
@@ -117,7 +117,7 @@ Kernels come from two places:
 - **nixpkgs** (`kernelConfig.matrix`, keyed by series: `6_1 6_6 6_12 6_18 7_3`). Each
   series probed with `tryEval`, so EOL removals drop out instead of breaking evaluation.
   These get a real `homa-module-<series>` and a bootable `homa-microvm-test-<series>`.
-- **Source** (`kernel-src.nix`): series nixpkgs has already dropped (7.0, 7.1, 7.2 from
+- **Source** (`kernel/src.nix`): series nixpkgs has already dropped (7.0, 7.1, 7.2 from
   pinned kernel.org tarballs) and, with `--impure` and `HOMA_LINUX_SRC=/path/to/linux`, a
   local checkout (`local`). Each is `olddefconfig` + `modules_prepare` in an O= tree using
   nixpkgs' newest kernel config: about 2.5 minutes and 450 MB, versus a full kernel build.
@@ -129,7 +129,7 @@ Kernels come from two places:
 kernel never hides the others.
 
 The unit harness and kernel-mock fuzzers stay on 6.18 (`unitKernelPackages`,
-`nix/unit-kdir`): `test/mock.c` has to support the kernel's headers, and that lags.
+`nix/kernel/unit-kdir`): `test/mock.c` has to support the kernel's headers, and that lags.
 
 ## 6. microVM approach
 
@@ -151,7 +151,7 @@ For a kernel module, a container is the wrong unit — you need a real kernel. T
   `homa_set_softirq_cpu` (the RPS flow-table code that 7.1 changed) → `rmmod` → dmesg gate. It prints
   `HOMA_SMOKE_<phase>_OK` lines, then `HOMA_SMOKE_PASS` or `HOMA_SMOKE_FAIL:<phase>`, and
   powers the VM off.
-- `lib.nix` on the host only boots the runner under `timeout`, captures the console, and
+- `smoke-test.nix` on the host only boots the runner under `timeout`, captures the console, and
   greps the sentinels. There is no expect script, no TCP serial port and no shell prompt to
   match, so tests for different kernels can run in parallel.
 - **Debug variant** (`withSanitizers`) boots a KASAN/KMEMLEAK kernel, allots more RAM,

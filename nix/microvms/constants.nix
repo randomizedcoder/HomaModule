@@ -1,6 +1,6 @@
 # nix/microvms/constants.nix
 #
-# Pure data shared by the guest builder (mkVm.nix) and the orchestrator (lib.nix). Single
+# Pure data shared by the guest builder (mkVm.nix) and the orchestrator (smoke-test.nix). Single
 # source of truth for identity, resources and timeouts (uds-rdma-proxy pattern).
 
 { lib }:
@@ -14,7 +14,7 @@
   memDebug = 4096; # KASAN needs headroom
 
   # Whole-run timeouts (seconds): boot + smoke test + poweroff. The kernels are chosen in
-  # kernel.nix (default and matrix), not here.
+  # kernel/config.nix (default and matrix), not here.
   bootTimeout = 300;
   bootTimeoutDebug = 1200; # KASAN guests boot slowly
 
@@ -67,7 +67,7 @@
     };
   };
 
-  # Two-VM pair test (pair.nix, lib-pair.nix; uds-rdma-proxy pattern). The guests share a
+  # Two-VM pair test (pair.nix, pair-test.nix; uds-rdma-proxy pattern). The guests share a
   # private L2 link on eth1: a QEMU "dgram" (UDP) netdev between two host ports, so no
   # root, tap or bridge is needed ("socket", a TCP stream, is kept for comparison; see
   # STATUS.md F2). Hostnames follow cp_node's "node<N>" naming.

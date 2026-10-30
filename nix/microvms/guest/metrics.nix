@@ -1,4 +1,4 @@
-# nix/microvms/metrics.nix
+# nix/microvms/guest/metrics.nix
 #
 # Counters for the pair tests: the homa-node-stats guest command, and the awk helpers that
 # turn two of its outputs into "name=delta" lines. Shared by pair.nix (in the guest) and

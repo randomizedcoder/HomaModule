@@ -10,13 +10,13 @@
 #                                  (lifecycle.nix, pcp pattern)
 #   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
 #   homa-microvm-test-debug        ... the same test under sanitizers
-#   homa-pair-test[-<s>-<c>]       two VMs (lib-pair.nix): Homa between server <s>, client <c>
+#   homa-pair-test[-<s>-<c>]       two VMs (pair-test.nix): Homa between server <s>, client <c>
 #   homa-pair-lifecycle[-<series>] the pair driven over both consoles, with timed phases and
 #                                  tc netem loss/delay phases (pair-lifecycle.nix)
 #   homa-pair-exp[-socket]         latency sweep over the pair link (STATUS.md F2)
 #   homa-vm-matrix                 every homa-microvm-test-<series> and pair, in parallel,
 #                                  with a summary table (matrix.nix)
-# <series> is every kernel.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
+# <series> is every kernel/config.nix matrix entry (6_1 ... 7_3); the unsuffixed names use the
 # default kernel. Tests share nothing on the host, so they can run in parallel.
 #
 # Called from nix/scope.nix. Host ports come from ports.nix, which fails evaluation if two
@@ -35,8 +35,8 @@
 
 let
   constants = import ./constants.nix { inherit lib; };
-  tclApps = import ./tcl.nix { inherit pkgs lib; inherit (constants) oopsRegex; };
-  metrics = import ./metrics.nix { inherit pkgs lib; };
+  tclApps = import ./host/tcl.nix { inherit pkgs lib; inherit (constants) oopsRegex; };
+  metrics = import ./guest/metrics.nix { inherit pkgs lib; };
 
   defaultKp = kernelConfig.kernelPackages;
   vmSeries = lib.attrNames kernelConfig.vmMatrix;
@@ -73,7 +73,7 @@ let
     , pairExperiments ? null
     , pairLink ? "dgram"
     , consolePorts ? null
-    }: import ./mkVm.nix {
+    }: import ./guest/mkVm.nix {
       inherit pkgs lib microvm nixpkgs buildSystem constants homaUtils
         kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink
         consolePorts;
@@ -81,7 +81,7 @@ let
       homaModuleDebug = buildModule { inherit kernelPackages; enableDebug = true; };
     };
 
-  mkTest = { kernelPackages, label, withSanitizers ? false }: import ./lib.nix {
+  mkTest = { kernelPackages, label, withSanitizers ? false }: import ./host/smoke-test.nix {
     inherit pkgs lib constants label withSanitizers;
     runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
   };
@@ -89,7 +89,7 @@ let
   # Lifecycle test of the kernel called name ("default" or a series).
   mkLifecycle = name: kernelPackages:
     let consolePorts = ports.console name; in
-    import ./lifecycle.nix {
+    import ./host/lifecycle.nix {
       inherit lib constants tclApps consolePorts;
       label = labelOf name;
       runner = mkGuest { inherit kernelPackages consolePorts; };
@@ -106,7 +106,7 @@ let
         consolePorts = consoles.${if pairNode == "server" then "node0" else "node1"};
       };
     in
-    import ./pair-lifecycle.nix {
+    import ./host/pair-lifecycle.nix {
       inherit lib constants tclApps metrics;
       label = labelOf name;
       ports = consoles;
@@ -115,7 +115,7 @@ let
     };
 
   # Two-VM pair test: node0 (server) on serverKp, node1 (client) on clientKp.
-  mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./lib-pair.nix {
+  mkPairTest = { serverKp, clientKp, label, port, experiments ? null, link ? "dgram" }: import ./host/pair-test.nix {
     inherit pkgs lib constants label port link;
     serverRunner = mkGuest {
       kernelPackages = serverKp;
@@ -174,7 +174,7 @@ let
 
   # homa-vm-matrix: every per-kernel smoke, lifecycle and pair lifecycle test and every
   # pair, in parallel.
-  matrix = import ./matrix.nix {
+  matrix = import ./host/matrix.nix {
     inherit lib tclApps;
     tests =
       lib.concatMap

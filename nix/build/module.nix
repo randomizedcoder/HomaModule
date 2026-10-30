@@ -1,4 +1,4 @@
-# nix/module.nix
+# nix/build/module.nix
 #
 # The homa.ko out-of-tree kernel module, built with the standard nixpkgs kbuild idiom
 # (kernel.moduleBuildDependencies + KDIR pointing at the kernel's build tree).
@@ -20,7 +20,7 @@
 #   modulePkgs.buildModule { kernelPackages = <kp>; enableDebug = false; }
 #
 # Per-kernel targets:
-#   homa-module-<series>   nixpkgs kernels (kernel.nix matrix): a real .ko, loadable in the
+#   homa-module-<series>   nixpkgs kernels (kernel/config.nix matrix): a real .ko, loadable in the
 #                          matching microVM.
 #   homa-module-<series>   kernel-src trees (7.0-7.2, local): compile check only, built with
 #                          KBUILD_MODPOST_WARN=1 because those trees have no Module.symvers.
@@ -86,7 +86,7 @@ let
     (_: kp: buildModule { kernelPackages = kp; })
     kernelConfig.matrix;
 
-  # Compile-only builds against kernels prepared from source (nix/kernel-src.nix). A cross
+  # Compile-only builds against kernels prepared from source (nix/kernel/src.nix). A cross
   # tree (cross.nix) brings its ARCH=/CROSS_COMPILE= flags and its cross gcc along.
   #   strip: build the upstream-shaped source (make __STRIP__=1)
   #   machine: if set, readelf must report this e_machine for homa.ko (e.g. "RISC-V")

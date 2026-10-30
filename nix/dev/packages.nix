@@ -1,4 +1,4 @@
-# nix/packages.nix
+# nix/dev/packages.nix
 #
 # Toolchain inventory, split by role (nixpkgs convention):
 #   nativeBuildInputs - build-time tools (kernel module build deps, make, perl)
@@ -7,8 +7,7 @@
 #   pythonEnv         - python3 + the only third-party deps Homa's scripts use
 #   allPackages       - everything, for the dev shell
 #
-# Usage in flake.nix:
-#   packagesModule = import ./nix/packages.nix { inherit pkgs lib kernelPackages; };
+# In the scope (nix/scope.nix) as packagesModule.
 
 { pkgs
 , lib

@@ -1,4 +1,4 @@
-# nix/kernel.nix
+# nix/kernel/config.nix
 #
 # Single source of truth for kernel selection.
 #
@@ -6,8 +6,7 @@
 # KDIR / modDirVersion used by the out-of-tree module build, and a "matrix" of every kernel
 # series nixpkgs ships (6.1 ... 7.3), used for per-kernel module builds and microVMs.
 #
-# Usage in flake.nix:
-#   kernelConfig = import ./nix/kernel.nix { inherit pkgs lib; };
+# In the scope (nix/scope.nix) as kernelConfig:
 #   kernelConfig.kernelPackages   # default (nixpkgs linux_latest, 7.3)
 #   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
 #   kernelConfig.matrix           # { "6_1" = <kp>; ...; "7_3" = <kp>; } (only those present)
@@ -38,7 +37,7 @@ let
 
   # Matrix: every kernel series nixpkgs still ships, keyed by series. Some attrs exist but
   # throw on access (EOL kernels), so each is probed with tryEval and only usable ones kept.
-  # Series nixpkgs has dropped (7.0-7.2) come from kernel.org tarballs: see kernel-src.nix.
+  # Series nixpkgs has dropped (7.0-7.2) come from kernel.org tarballs: see kernel/src.nix.
   candidates = [ "6_1" "6_6" "6_12" "6_18" "latest" ];
   kpFor = name: pkgs."linuxPackages_${name}" or null;
   usable = name:

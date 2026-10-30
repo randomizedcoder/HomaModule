@@ -1,4 +1,4 @@
-# nix/microvms/qdisc.nix
+# nix/microvms/guest/qdisc.nix
 #
 # homa-qdisc on|off|show (guest command): attach Homa's queuing discipline to every tx
 # queue of eth1, as cloudlab/bin/config's config_qdisc does (mq at the root, homa on each

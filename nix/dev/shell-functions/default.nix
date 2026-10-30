@@ -1,10 +1,9 @@
-# nix/shell-functions/default.nix
+# nix/dev/shell-functions/default.nix
 #
 # Bash helper functions spliced into the dev shell's shellHook (xdp2 pattern). Returns one
 # concatenated string of function definitions.
 #
-# Usage in flake.nix:
-#   shellFunctions = import ./nix/shell-functions { inherit pkgs lib; };
+# In the scope (nix/scope.nix) as shellFunctions; dev/shell.nix puts it in the shellHook.
 
 { pkgs, lib }:
 

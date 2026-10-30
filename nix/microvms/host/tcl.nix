@@ -1,4 +1,4 @@
-# nix/microvms/tcl.nix
+# nix/microvms/host/tcl.nix
 #
 # Packages the Tcl/Expect drivers in tcl/ (see tcl/README.md):
 #
@@ -18,21 +18,21 @@ let
 
   # The package and drivers only: editing the tests or README does not change the apps.
   src = lib.fileset.toSource {
-    root = ./tcl;
+    root = ../tcl;
     fileset = lib.fileset.unions [
-      ./tcl/pkgIndex.tcl
-      ./tcl/parse.tcl
-      ./tcl/console.tcl
-      ./tcl/lc.tcl
-      ./tcl/bin
+      ../tcl/pkgIndex.tcl
+      ../tcl/parse.tcl
+      ../tcl/console.tcl
+      ../tcl/lc.tcl
+      ../tcl/bin
     ];
   };
 
   testSrc = lib.fileset.toSource {
-    root = ./tcl;
+    root = ../tcl;
     fileset = lib.fileset.unions [
-      (lib.fileset.fileFilter (f: f.hasExt "tcl" || f.hasExt "test") ./tcl)
-      ./tcl/tclint.toml
+      (lib.fileset.fileFilter (f: f.hasExt "tcl" || f.hasExt "test") ../tcl)
+      ../tcl/tclint.toml
     ];
   };
 

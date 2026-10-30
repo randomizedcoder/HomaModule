@@ -1,10 +1,10 @@
-# nix/cross.nix
+# nix/build/cross.nix
 #
 # Cross-compile checks (xdp2 pattern): build Homa for other architectures on an x86_64
 # host, with nixpkgs' cached cross toolchains (pkgsCross), and no emulation.
 #
 #   homa-module-<arch>         homa.ko for the default kernel (7.3), cross-compiled against a
-#                              prepared tree (kernel-src.nix mkTree) using nixpkgs' <arch>
+#                              prepared tree (kernel/src.nix mkTree) using nixpkgs' <arch>
 #                              kernel config; checks homa.ko's ELF machine
 #   homa-module-<arch>-strip   ... the same for the upstream-shaped source (__STRIP__=1)
 #   homa-utils-<arch>          util/ (cp_node, demo_*, ...) built with the cross toolchain

@@ -1,9 +1,9 @@
-# nix/microvms/smoke.nix
+# nix/microvms/guest/smoke.nix
 #
 # The in-guest smoke test (xtcp2 pattern): a shellcheck-clean script that the guest runs as a
 # systemd oneshot with its output on the serial console. Each phase prints HOMA_SMOKE_<phase>_OK,
 # and the run ends with exactly one of HOMA_SMOKE_PASS or HOMA_SMOKE_FAIL:<phase>; the host
-# (lib.nix) greps the captured console log for them.
+# (smoke-test.nix) greps the captured console log for them.
 #
 #   insmod -> lsmod -> loopback echo RPCs (demo_server1 <- demo_client1, 100 B .. 1 MB:
 #   exercises sendmsg and the recvmsg path) -> the same echo across two netns over veth with

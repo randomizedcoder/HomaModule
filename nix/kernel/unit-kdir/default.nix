@@ -1,4 +1,4 @@
-# nix/unit-kdir/default.nix
+# nix/kernel/unit-kdir/default.nix
 #
 # A KDIR tailored for Homa's user-space unit harness (test/) and the kernel-mock fuzzers.
 #

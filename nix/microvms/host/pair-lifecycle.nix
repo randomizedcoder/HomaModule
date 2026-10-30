@@ -1,4 +1,4 @@
-# nix/microvms/pair-lifecycle.nix
+# nix/microvms/host/pair-lifecycle.nix
 #
 # Pair lifecycle test (PLAN-pairs.md phase 4): the two-VM pair (node0 server, node1 client,
 # on a private eth1 link) driven from the host over each guest's hvc0, with every phase

@@ -1,4 +1,4 @@
-# nix/oci.nix
+# nix/build/oci.nix
 #
 # A lightweight OCI image bundling Homa's user-space tools + Python tooling (secondary to
 # the microVM, which is the real kernel-module test vehicle). Uses dockerTools.buildLayeredImage
@@ -7,11 +7,7 @@
 #   nix build .#homa-image        && docker load < result
 #   nix build .#homa-image-debug  && docker load < result
 #
-# Usage in flake.nix:
-#   ociPkgs = import ./nix/oci.nix {
-#     inherit pkgs lib pythonEnv;
-#     inherit (userspacePkgs) homa-utils homa-utils-debug;
-#   };
+# In the scope (nix/scope.nix) as ociPkgs.
 
 { pkgs
 , lib

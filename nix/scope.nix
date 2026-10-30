@@ -20,24 +20,24 @@ pkgs.lib.makeScope pkgs.newScope (self: {
   homaLib = self.callPackage ./lib { rev = inputs.self.rev or "dirty"; };
 
   # Foundation: the kernels, kernel trees from source, tool lists, dev environment.
-  kernelConfig = self.callPackage ./kernel.nix { };
-  kernelSrc = self.callPackage ./kernel-src.nix { };
-  packagesModule = self.callPackage ./packages.nix {
+  kernelConfig = self.callPackage ./kernel/config.nix { };
+  kernelSrc = self.callPackage ./kernel/src.nix { };
+  packagesModule = self.callPackage ./dev/packages.nix {
     inherit (self.kernelConfig) kernelPackages;
   };
   inherit (self.packagesModule) pythonEnv;
-  envVars = self.callPackage ./env-vars.nix { };
-  shellFunctions = self.callPackage ./shell-functions { };
+  envVars = self.callPackage ./dev/env-vars.nix { };
+  shellFunctions = self.callPackage ./dev/shell-functions { };
   # The merged kernel tree that the unit tests and the mock fuzzers build against.
-  unitKdir = self.callPackage ./unit-kdir { };
+  unitKdir = self.callPackage ./kernel/unit-kdir { };
 
   # Each of these returns { packages, checks?, ... } for a part in parts/.
-  modulePkgs = self.callPackage ./module.nix { };
-  crossPkgs = self.callPackage ./cross.nix {
+  modulePkgs = self.callPackage ./build/module.nix { };
+  crossPkgs = self.callPackage ./build/cross.nix {
     inherit (self.modulePkgs) buildAgainstTree;
   };
-  userspacePkgs = self.callPackage ./userspace.nix { };
-  ociPkgs = self.callPackage ./oci.nix {
+  userspacePkgs = self.callPackage ./build/userspace.nix { };
+  ociPkgs = self.callPackage ./build/oci.nix {
     inherit (self.userspacePkgs) homa-utils homa-utils-debug;
   };
   analysisPkgs = self.callPackage ./analysis { };
@@ -48,5 +48,5 @@ pkgs.lib.makeScope pkgs.newScope (self: {
     inherit (self.modulePkgs) buildModule;
     homaUtils = self.userspacePkgs.homa-utils;
   };
-  devShell = self.callPackage ./devshell.nix { };
+  devShell = self.callPackage ./dev/shell.nix { };
 })

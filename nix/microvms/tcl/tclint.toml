@@ -1,4 +1,4 @@
-# tclint settings for this package (nix/microvms/tcl.nix runs it in the tcl-tests check).
+# tclint settings for this package (nix/microvms/host/tcl.nix runs it in the tcl-tests check).
 #
 # pkgIndex.tcl is left to nagelfar: tclint cannot parse "package ifneeded" scripts yet and
 # says so for every line.

@@ -429,6 +429,6 @@ Round-4 candidate 5, now reproduced in VMs.
 |---|---|
 | 2026-09-18 | Flake built in phases: design doc, module and user-space derivations, dev shell, microVM, OCI image, tiered static analysis, fuzzing. Round 1 reports in `analysis-reports/round1/` |
 | 2026-10-21 | Round 2: rebased on `main`, 6.18 default, hermetic unit KDIR, real-code fuzz-mock (found #121), `analysis-reports/round2/` |
-| 2026-10-22 | 7.x: default 7.3, `kernel-src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
+| 2026-10-22 | 7.x: default 7.3, `kernel/src.nix` (7.0–7.2 and local trees), `homa-build-matrix`, per-kernel microVMs, GRO/RPS smoke test |
 | 2026-10-28 | The 7.1 patch landed upstream (#120), so `nix/patches/` is empty. Two-VM pair tests, cross-kernel pairs, this status doc. F2 latency sweep (`homa-pair-exp`): RESEND-timer stalls from QEMU's `socket` link, pair tests moved to `dgram` |
 | 2026-10-29 | John: `main` will target an LTS of 7.3+ (F1 closed). Phase 3 `homa-vm-matrix`; guests boot with `init_on_free=1`; found F8 (UAF in `homa_route_free`), fix as fork #22. riscv64/aarch64 cross builds (`homa-cross-matrix`, F9). `homa-lifecycle` (pcp-style phases over ttyS0 and hvc0). `homa-pair-lifecycle`: the pair over both consoles, with `tc netem` loss and delay phases (limit 100000); found F10. PLAN-pairs phase 5: Homa's qdisc and pacer in the pair lifecycle; reproduced round-4 candidate 5 (F11), fix as fork #23 |
