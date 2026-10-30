@@ -6,12 +6,9 @@
 # In the scope (nix/scope.nix) as devShell; nix/parts/dev.nix makes it devShells.default.
 
 { pkgs
-, lib
 , packagesModule
 , envVars
-  # Concatenated bash function definitions (from shell-functions/*.nix). Default "" so the
-  # shell still works before Phase 4 wires them in.
-, shellFunctions ? ""
+, shellFunctions # bash function definitions (shell-functions/)
 }:
 
 pkgs.mkShell {

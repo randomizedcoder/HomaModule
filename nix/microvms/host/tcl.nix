@@ -115,7 +115,7 @@ let
   };
 in
 {
-  inherit src lint test;
+  inherit lint test;
 
   # Without a config, the driver gets only the command line's arguments.
   mkTclApp = { name, driver, config ? null }:

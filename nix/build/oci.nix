@@ -48,6 +48,5 @@ let
   homa-image-debug = mkImage { name = "homa-image-debug"; utils = homa-utils-debug; };
 in
 {
-  inherit homa-image homa-image-debug;
   packages = { inherit homa-image homa-image-debug; };
 }

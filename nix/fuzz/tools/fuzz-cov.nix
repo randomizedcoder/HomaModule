@@ -8,7 +8,7 @@
 
 mkFuzzDrv {
   pname = "homa-fuzz-cov";
-  nativeBuildInputs = [ pkgs.clang pkgs.llvm ];
+  nativeBuildInputs = [ pkgs.llvm ];
 
   buildPhase = ''
     runHook preBuild
@@ -32,7 +32,6 @@ mkFuzzDrv {
     llvm-cov show ./fuzz_dissector_cov -instr-profile=dissector.profdata \
       > "$out/dissector.show.txt" 2>&1 || true
     cp dissector.profdata "$out/" 2>/dev/null || true
-    echo "0" > "$out/count.txt"
     tail -n 20 "$out/summary.txt"
     runHook postBuild
   '';

@@ -5,7 +5,7 @@
 #
 # In the scope (nix/scope.nix) as shellFunctions; dev/shell.nix puts it in the shellHook.
 
-{ pkgs, lib }:
+{}:
 
 ''
   # Build homa.ko against $KDIR (env-vars.nix defaults KDIR to the pinned kernel; override
@@ -16,7 +16,7 @@
 
   # Build and run the unit tests (AddressSanitizer) against $KDIR.
   homa-test() {
-    make -C test KDIR="''${KDIR}" LINUX_VERSION="''${LINUX_VERSION}" ARCH="''${ARCH:-x86}" "$@" \
+    make -C test KDIR="''${KDIR}" LINUX_VERSION="''${LINUX_VERSION}" ARCH="''${ARCH}" "$@" \
       && ./test/unit
   }
 

@@ -1,11 +1,8 @@
 # nix/dev/packages.nix
 #
-# Toolchain inventory, split by role (nixpkgs convention):
-#   nativeBuildInputs - build-time tools (kernel module build deps, make, perl)
-#   buildInputs       - runtime libraries linked into build products
-#   devTools          - dev/analysis-only tools (linters, formatters, gdb)
-#   pythonEnv         - python3 + the only third-party deps Homa's scripts use
-#   allPackages       - everything, for the dev shell
+# The dev shell's tools, grouped by role:
+#   pythonEnv     python3 + the only third-party deps Homa's scripts use
+#   allPackages   everything, for the dev shell
 #
 # In the scope (nix/scope.nix) as packagesModule.
 
@@ -20,13 +17,11 @@ let
 
   # Out-of-tree kernel module build dependencies (the key kbuild idiom) + make/perl for the
   # test harness dependency generation (test/mergedep.pl).
-  nativeBuildInputs = [
+  buildTools = [
     pkgs.gnumake
     pkgs.perl
     pkgs.bc
   ] ++ kernelPackages.kernel.moduleBuildDependencies;
-
-  buildInputs = [ ];
 
   # C/C++ static-analysis + formatting tools. `smatch` is not in every nixpkgs, so guard it.
   cTools = [
@@ -37,7 +32,7 @@ let
     pkgs.gdb
   ] ++ lib.optional (pkgs ? smatch) pkgs.smatch;
 
-  pyTools = [ pkgs.ruff pkgs.mypy ];
+  pyTools = [ pkgs.ruff pkgs.mypy pythonEnv ];
   shTools = [ pkgs.shellcheck pkgs.shfmt ];
   docTools = [ pkgs.groff pkgs.ghostscript ]; # man/ PDF generation
 
@@ -50,11 +45,8 @@ let
     pkgs.nagelfar
     pkgs.tclint
   ];
-
-  devTools = cTools ++ pyTools ++ shTools ++ docTools ++ tclTools ++ [ pythonEnv ];
-
-  allPackages = nativeBuildInputs ++ buildInputs ++ devTools;
 in
 {
-  inherit nativeBuildInputs buildInputs devTools pythonEnv allPackages;
+  inherit pythonEnv;
+  allPackages = buildTools ++ cTools ++ pyTools ++ shTools ++ docTools ++ tclTools;
 }

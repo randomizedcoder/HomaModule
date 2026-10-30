@@ -14,7 +14,6 @@
 #
 # Usage (nix/scope.nix calls this file with callPackage):
 #   modulePkgs.homa-module          # release .ko (default kernel)
-#   modulePkgs.homa-module-debug    # debug .ko
 #   modulePkgs.packages             # { homa-module, homa-module-debug, homa-module-<series>...,
 #                                   #   homa-build-matrix }
 #   modulePkgs.buildModule { kernelPackages = <kp>; enableDebug = false; }
@@ -69,8 +68,6 @@ let
       dontStrip = true;
       dontPatchELF = true;
 
-      passthru = { inherit kernelPackages modDirVersion enableDebug; };
-
       meta = homaLib.meta // {
         description = "Homa transport protocol Linux kernel module (homa.ko)"
           + lib.optionalString enableDebug " [debug]";
@@ -80,7 +77,7 @@ let
   homa-module = buildModule { inherit (kernelConfig) kernelPackages; };
   homa-module-debug = buildModule { inherit (kernelConfig) kernelPackages; enableDebug = true; };
 
-  # Compile-test matrix: homa-module-<ver> against each available LTS kernel (fallback for
+  # Compile-test matrix: homa-module-<ver> against each nixpkgs kernel (fallback for
   # API drift on the newest kernel).
   matrixPkgs = perKernel "homa-module"
     (_: kp: buildModule { kernelPackages = kp; })
@@ -152,7 +149,7 @@ let
   };
 in
 {
-  inherit buildModule buildAgainstTree homa-module homa-module-debug homa-build-matrix;
+  inherit buildModule buildAgainstTree homa-module;
   packages = {
     inherit homa-module homa-module-debug homa-build-matrix;
   } // srcPkgs // matrixPkgs;

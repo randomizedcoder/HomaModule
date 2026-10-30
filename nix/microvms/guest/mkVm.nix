@@ -27,11 +27,10 @@
 , lib
 , microvm
 , nixpkgs
-, kernelPackages      # guest kernel; homaModule must be built against it
+, kernelPackages      # guest kernel (with withSanitizers, the base of the KASAN one)
 , buildSystem
 , constants
-, homaModule          # release homa.ko derivation
-, homaModuleDebug     # debug homa.ko derivation
+, buildModule         # build/module.nix: homa.ko for a kernelPackages
 , homaUtils           # user-space tools (demo_server1/demo_client1 for the smoke test)
 , withSanitizers ? false
 , autoTest ? false
@@ -43,27 +42,31 @@
 }:
 
 let
-  baseKernelPackages = kernelPackages;
-
   # For the debug VM, turn on KASAN/KMEMLEAK by overriding the kernel config.
-  sanitizerKernel = (baseKernelPackages.kernel.override {
-    structuredExtraConfig = with lib.kernel; {
-      KASAN = yes;
-      KASAN_GENERIC = yes;
-      KASAN_INLINE = yes;
-      DEBUG_KMEMLEAK = yes;
-      KCOV = yes;
-    };
-  });
-  sanitizerKernelPackages = pkgs.linuxPackagesFor sanitizerKernel;
+  guestKernelPackages =
+    if withSanitizers then
+      pkgs.linuxPackagesFor
+        (kernelPackages.kernel.override {
+          structuredExtraConfig = with lib.kernel; {
+            KASAN = yes;
+            KASAN_GENERIC = yes;
+            KASAN_INLINE = yes;
+            DEBUG_KMEMLEAK = yes;
+            KCOV = yes;
+            # Rust is unavailable with these sanitizers, so nixpkgs' RUST = yes and the
+            # drivers that need it would fail the config check ("unused option").
+            RUST = lib.mkForce unset;
+            NOVA_CORE = lib.mkForce unset;
+            DRM_NOVA = lib.mkForce unset;
+            DRM_PANIC_SCREEN_QR_CODE = lib.mkForce unset;
+          };
+        })
+    else kernelPackages;
 
-  guestKernelPackages = if withSanitizers then sanitizerKernelPackages else baseKernelPackages;
-
-  # Co-pinned module: use the matching build. (For the sanitizer kernel we still load the
-  # debug .ko; its vermagic matches because modDirVersion is unchanged by config-only overrides.)
-  homaKo = if withSanitizers then homaModuleDebug else homaModule;
-  modVer = baseKernelPackages.kernel.modDirVersion;
-  homaKoPath = "${homaKo}/lib/modules/${modVer}/homa.ko";
+  # Co-pinned module: homa.ko is built against the kernel the guest boots, so the debug
+  # VM's homa.ko is KASAN-instrumented too (kbuild takes the flags from the tree's config).
+  homaKo = buildModule { kernelPackages = guestKernelPackages; enableDebug = withSanitizers; };
+  homaKoPath = "${homaKo}/lib/modules/${guestKernelPackages.kernel.modDirVersion}/homa.ko";
 
   smoke = import ./smoke.nix {
     inherit pkgs homaKoPath homaUtils withSanitizers;
@@ -86,7 +89,7 @@ let
     system = buildSystem;
     modules = [
       microvm.nixosModules.microvm
-      ({ config, pkgs, lib, ... }: {
+      ({ pkgs, lib, ... }: {
         boot.kernelPackages = guestKernelPackages;
         boot.kernelParams = [
           "console=ttyS0,115200"

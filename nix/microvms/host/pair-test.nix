@@ -13,7 +13,6 @@
 # Logs go to $HOMA_VM_LOGDIR (default: a fresh mktemp -d), printed at the start.
 
 { pkgs
-, lib
 , constants
 , serverRunner      # declaredRunner for the pairNode = "server" guest
 , clientRunner      # declaredRunner for the pairNode = "client" guest

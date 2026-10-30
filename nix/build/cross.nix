@@ -78,7 +78,6 @@ let
   '';
 in
 {
-  inherit all homa-cross-matrix;
   packages = lib.concatMapAttrs
     (name: a: {
       "homa-module-${name}" = a.module;

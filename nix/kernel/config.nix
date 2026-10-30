@@ -11,7 +11,8 @@
 #   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
 #   kernelConfig.matrix           # { "6_1" = <kp>; ...; "7_3" = <kp>; } (only those present)
 #   kernelConfig.vmMatrix         # the subset the module builds on, so microVMs are useful
-#   kernelConfig.unitKdir         # KDIR for the unit harness / mock fuzzers (6.18)
+#   kernelConfig.unitKernelPackages  # the unit harness / mock fuzzers' kernel (6.18), which
+#                                    # kernel/unit-kdir builds its KDIR from
 
 { pkgs
 , lib
@@ -26,9 +27,6 @@
 }:
 
 let
-  kernel = kernelPackages.kernel;
-  modDirVersion = kernel.modDirVersion;
-
   # KDIR for a given kernelPackages: the build tree shipped in the kernel's `dev` output.
   kdirOf = kp: "${kp.kernel.dev}/lib/modules/${kp.kernel.modDirVersion}/build";
 
@@ -56,9 +54,7 @@ let
   vmMatrix = lib.filterAttrs (s: _: lib.elem s vmSeries) matrix;
 in
 {
-  inherit kernelPackages kernel modDirVersion matrix vmMatrix kdirOf seriesOf unitKernelPackages;
+  inherit kernelPackages matrix vmMatrix kdirOf seriesOf unitKernelPackages;
+  inherit (kernelPackages.kernel) modDirVersion;
   kdir = kdirOf kernelPackages;
-  unitKdir = kdirOf unitKernelPackages;
-  unitModDirVersion = unitKernelPackages.kernel.modDirVersion;
-  latest = pkgs.linuxPackages_latest;
 }

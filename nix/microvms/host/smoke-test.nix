@@ -11,7 +11,6 @@
 # The log is kept in $HOMA_VM_LOGDIR (default: a fresh mktemp -d), printed at the start.
 
 { pkgs
-, lib
 , constants
 , runner            # config.microvm.declaredRunner for an autoTest guest
 , label ? ""        # "", "-debug", "-7_3", ...

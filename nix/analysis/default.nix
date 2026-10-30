@@ -27,7 +27,8 @@ let
   mkAnalysisTool = { name, tools, script, count, src ? homaLib.src.module, kbuild ? false }:
     (if kbuild then pkgs.runCommandCC else pkgs.runCommand) "homa-analysis-${name}"
       {
-        nativeBuildInputs = with pkgs; [ coreutils findutils gnugrep gnused ] ++ tools
+        # stdenv already has coreutils, findutils, grep, sed and awk on PATH.
+        nativeBuildInputs = tools
           ++ lib.optionals kbuild
           ([ pkgs.gnumake ] ++ kernelConfig.kernelPackages.kernel.moduleBuildDependencies);
         hardeningDisable = lib.optional kbuild "all";
@@ -71,12 +72,8 @@ let
     let
       links = lib.concatMapStringsSep "\n"
         (t: ''
-          if [ -e "${t.drv}/report.txt" ]; then
-            cp "${t.drv}/report.txt" "$out/${t.name}.report.txt"
-            c=$(cat "${t.drv}/count.txt" 2>/dev/null || echo 0)
-          else
-            c=0
-          fi
+          cp "${t.drv}/report.txt" "$out/${t.name}.report.txt"
+          c=$(cat "${t.drv}/count.txt")
           printf '  %-14s %s finding(s)\n' "${t.name}:" "$c" >> "$out/summary.txt"
           total=$((total + c))
         '')

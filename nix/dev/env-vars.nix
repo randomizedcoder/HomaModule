@@ -1,14 +1,11 @@
 # nix/dev/env-vars.nix
 #
 # A shell-script fragment (returned as a string) that the dev shell splices into its
-# shellHook. Sets the environment Homa's Makefiles expect. Kept as a string so both the dev
-# shell and any wrapper scripts can source the same definitions.
+# shellHook. Sets the environment Homa's Makefiles expect.
 #
 # In the scope (nix/scope.nix) as envVars; dev/shell.nix puts it in the shellHook.
 
-{ pkgs
-, lib
-, kernelConfig
+{ kernelConfig
 , pythonEnv
 }:
 
