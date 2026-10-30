@@ -18,6 +18,8 @@ nix run .#homa-pair-lifecycle-6_12    # two guests: traffic, netem loss, Homa's 
 HOMA_VM_LOGDIR=/tmp/lc nix run .#homa-lifecycle   # keep the logs somewhere known
 HOMA_VM_JOBS=4 nix run .#homa-vm-matrix            # every VM test, at most 4 at once
 nix build .#checks.x86_64-linux.tcl-tests          # the tests and lint below
+nix run .#homa-tcl-test -- -file wait.test          # some of the tests (see Tests)
+nix run .#homa-tcl-lint                             # just the lint
 ```
 
 ## Files
@@ -98,17 +100,23 @@ testTable combine {
 | `tests/batch.test` | `Batch`: exit codes, signals, a command that cannot start, each test's own directory, the job limit, bad limits and duplicate names; `withEnv`, and `HOMA_VM_LOGDIR` left as it was |
 | `tests/style.test` | the sources themselves: every proc, method and constructor has `Arguments:` (if it takes any), `Results:` and `Side effects:`; no `eval`; no `namespace export *` |
 
-Run them directly:
+Run them, or part of them, with `homa-tcl-test`. Its options go to tcltest, and each row is
+a test named `<table>-<n>`:
 
 ```sh
-cd nix/microvms/tcl/tests
-TCLLIBPATH=$(nix build --no-link --print-out-paths nixpkgs#expect)/lib \
-  nix shell nixpkgs#tcl -c tclsh all.tcl                    # all of them, Tcl 8.6
-nix shell nixpkgs#tcl-9_0 -c tclsh all.tcl \
-  -file "parse.test protocol.test report.test style.test"   # the pure tables on Tcl 9
+nix run .#homa-tcl-test                                   # all of them, Tcl 8.6
+nix run .#homa-tcl-test -- -file wait.test                # one file
+nix run .#homa-tcl-test -- -file "parse.test report.test" # several
+nix run .#homa-tcl-test -- -match 'trafficDetail-*'       # one table
+nix run .#homa-tcl-test -- -match waitFor-3               # one row
+nix run .#homa-tcl-test -- -verbose bpe -match 'delta-*'  # each test's body, pass and error
+nix run .#homa-tcl-test -- --tcl9                         # the pure files on Tcl 9.0
+nix run .#homa-tcl-lint                                   # the linters below
 ```
 
-The `tcl-tests` check runs both, plus two linters:
+The app runs a copy of the tests as the flake sees them (a new file needs `git add -N`).
+The `tcl-tests` check runs the lint, the whole suite on Tcl 8.6 and the pure files on Tcl
+9.0; the lint is:
 
 - **nagelfar** checks syntax and variable use. `tests/lintdb.tcl` generates its database
   for our own commands from the loaded code (ensemble maps, `info args`, class

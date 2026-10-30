@@ -227,6 +227,9 @@ in
       link = "socket";
     };
     homa-vm-matrix = matrix;
+    # The Tcl drivers' tests and lint, for running by hand (tcl.nix, ../tcl/README.md).
+    homa-tcl-test = tclApps.test;
+    homa-tcl-lint = tclApps.lint;
   } // perKernel // perPair;
 
   # The Tcl drivers' tests and lint (tcl.nix).
