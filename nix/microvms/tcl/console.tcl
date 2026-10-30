@@ -13,10 +13,6 @@ namespace eval ::homa::lc {
     namespace export Console
 }
 
-# Expect copies everything it reads to stdout unless told not to; console
-# output goes to the phase logs instead.
-log_user 0
-
 # homa::lc::Console --
 #
 #	One guest console.
@@ -44,10 +40,21 @@ oo::class create ::homa::lc::Console {
     #	chan		the channel.
     #	matchMax	bytes Expect buffers before handing a partial line over
     #			(see run). Tests lower it to exercise long lines.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Expect spawns on chan, and log_user is turned off, so Expect no
+    #	longer copies what it reads to stdout (console output goes to the
+    #	phase logs instead).
 
     constructor {chan {matchMax 65536}} {
         # Methods run in the object's namespace; find protocol.
         namespace path ::homa::lc
+        # Expect copies everything it reads to stdout unless told not to;
+        # console output goes to the phase logs instead.
+        log_user 0
         set lastId 0
         spawn -noecho -open $chan
         set spawnId $spawn_id
@@ -60,7 +67,13 @@ oo::class create ::homa::lc::Console {
 
     # alive --
     #
-    #	Returns 1 while the connection is open.
+    #	Whether the connection is open.
+    #
+    # Results:
+    #	1 while the connection is open, otherwise 0.
+    #
+    # Side effects:
+    #	None.
 
     method alive {} {
         return [expr {$spawnId ne ""}]
@@ -69,7 +82,16 @@ oo::class create ::homa::lc::Console {
     # send --
     #
     #	Writes one line to the guest without waiting for anything, e.g.
-    #	"poweroff". Returns 1 if it was written, 0 if the console has closed.
+    #	"poweroff".
+    #
+    # Arguments:
+    #	line	the line, without its newline.
+    #
+    # Results:
+    #	1 if it was written, 0 if the console has closed.
+    #
+    # Side effects:
+    #	The line is sent to the guest. A failed write closes the console.
 
     method send {line} {
         if {$spawnId eq ""} {
@@ -98,6 +120,10 @@ oo::class create ::homa::lc::Console {
     #		125 if the console closed (the guest powered off or crashed).
     #	out	what the command printed, one line per line, with carriage
     #		returns and every end marker removed.
+    #
+    # Side effects:
+    #	The wrapped command is sent to the guest, and output up to its end
+    #	marker is consumed. End of file closes the console.
 
     method run {cmd timeout} {
         set id [incr lastId]
@@ -136,6 +162,12 @@ oo::class create ::homa::lc::Console {
     # Close --
     #
     #	Closes the connection (and the channel Expect took over), once.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	The connection is closed; later commands return 125 at once.
 
     method Close {} {
         if {$spawnId ne ""} {

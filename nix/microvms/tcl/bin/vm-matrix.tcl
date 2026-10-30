@@ -21,11 +21,21 @@ namespace import ::homa::lc::report
 
 # main --
 #
-#	Runs the tests and returns the exit code.
+#	Runs the tests.
+#
+# Arguments:
+#	configFile	the path of config.json.
+#
+# Results:
+#	The exit code: 0 if every test passed, otherwise 1.
+#
+# Side effects:
+#	Runs each test as a process in its own directory under the log
+#	directory, writes summary.md there, and prints the table and verdict.
 
 proc main {configFile} {
     global env
-    set config [json::json2dict [homa::lc::slurp $configFile]]
+    set config [json::json2dict [homa::lc::readFile $configFile]]
     set tests [dict get $config tests]
     set count [llength $tests]
     set logdir [homa::lc::logdir]
@@ -52,14 +62,14 @@ proc main {configFile} {
         set name [dict get $test name]
         lassign [dict get $results $name] - secs
         set outcome [report matrixRow $name [dict get $test kernels] $secs \
-            [dict get $config echoRpcs] [homa::lc::slurp [file join $logdir $name.out]]]
+            [dict get $config echoRpcs] [homa::lc::readFile [file join $logdir $name.out]]]
         if {[dict get $outcome verdict] ne "PASS"} {
             incr failed
         }
         lappend rows [dict get $outcome row]
     }
     set summary [file join $logdir summary.md]
-    homa::lc::spit $summary [join $rows \n]
+    homa::lc::writeFile $summary [join $rows \n]
     puts "\n[join $rows \n]\n"
     puts "summary: $summary ([expr {[clock seconds] - $start}] s)"
     if {$failed} {

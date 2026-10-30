@@ -19,7 +19,7 @@ package require homa::lc::report
 package require homa::lc::console
 
 namespace eval ::homa::lc {
-    namespace export Table Node Batch logdir waitFor slurp spit utf8 withEnv
+    namespace export Table Node Batch logdir waitFor readFile writeFile utf8 withEnv
 }
 
 # homa::lc::waitFor --
@@ -39,6 +39,9 @@ namespace eval ::homa::lc {
 #
 # Results:
 #	1 if the condition became true, 0 if the time ran out.
+#
+# Side effects:
+#	Handles pending events (update) while it waits.
 
 proc ::homa::lc::waitFor {ms interval condition} {
     if {![string is entier -strict $ms] || $ms < 0} {
@@ -63,6 +66,12 @@ proc ::homa::lc::waitFor {ms interval condition} {
 #
 #	Returns the run's log directory: $HOMA_VM_LOGDIR, created if need be,
 #	or a new temporary directory.
+#
+# Results:
+#	The log directory's path.
+#
+# Side effects:
+#	Creates $HOMA_VM_LOGDIR if missing, or else a new temporary directory.
 
 proc ::homa::lc::logdir {} {
     global env
@@ -73,13 +82,22 @@ proc ::homa::lc::logdir {} {
     return [exec mktemp -d]
 }
 
-# homa::lc::slurp --
+# homa::lc::readFile --
 #
 #	Returns a file's contents, read as UTF-8, or an empty string if it does
 #	not exist (yet). Bytes that are not UTF-8 (a serial log can hold line
 #	noise) are kept as single characters rather than raising an error.
+#
+# Arguments:
+#	path	the file.
+#
+# Results:
+#	The file's contents, or an empty string if it does not exist.
+#
+# Side effects:
+#	None.
 
-proc ::homa::lc::slurp {path} {
+proc ::homa::lc::readFile {path} {
     try {
         set chan [open $path r]
     } trap {POSIX ENOENT} {} {
@@ -93,7 +111,7 @@ proc ::homa::lc::slurp {path} {
     }
 }
 
-# homa::lc::spit --
+# homa::lc::writeFile --
 #
 #	Writes text, as UTF-8, plus a final newline unless it is empty, to a
 #	file.
@@ -102,8 +120,14 @@ proc ::homa::lc::slurp {path} {
 #	path	the file.
 #	text	what to write.
 #	access	w to replace the file, a to append to it.
+#
+# Results:
+#	None.
+#
+# Side effects:
+#	Creates, replaces or appends to the file.
 
-proc ::homa::lc::spit {path text {access w}} {
+proc ::homa::lc::writeFile {path text {access w}} {
     set chan [open $path $access]
     try {
         utf8 $chan
@@ -117,6 +141,15 @@ proc ::homa::lc::spit {path text {access w}} {
 #
 #	Makes a channel read and write UTF-8 whatever the locale, and, on
 #	Tcl 9, replace bad bytes rather than fail on them (8.6 always does).
+#
+# Arguments:
+#	chan	the channel.
+#
+# Results:
+#	None.
+#
+# Side effects:
+#	Sets the channel's encoding (and, on Tcl 9, its profile).
 
 proc ::homa::lc::utf8 {chan} {
     chan configure $chan -encoding utf-8
@@ -132,8 +165,16 @@ proc ::homa::lc::utf8 {chan} {
 #	Tcl 8.6's "open |" has no option for a child's environment, so it is
 #	set around the open.
 #
+# Arguments:
+#	name	the environment variable's name.
+#	value	its value while script runs.
+#	script	the script to run.
+#
 # Results:
 #	The script's result.
+#
+# Side effects:
+#	Sets env(name) while script runs, and whatever script does.
 
 proc ::homa::lc::withEnv {name value script} {
     global env
@@ -174,6 +215,20 @@ oo::class create ::homa::lc::Batch {
     # results	test name -> {rc secs}, as each finishes.
     variable logdir limit waiting running results
 
+    # constructor --
+    #
+    #	Makes a batch that runs its tests under dir, jobs at a time.
+    #
+    # Arguments:
+    #	dir	the log directory for the tests' directories and .out files.
+    #	jobs	how many tests may run at once, at least 1.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Sets the object's namespace path to ::homa::lc.
+
     constructor {dir jobs} {
         # Methods run in the object's namespace; find withEnv.
         namespace path ::homa::lc
@@ -190,8 +245,14 @@ oo::class create ::homa::lc::Batch {
     #	Runs tests, a list of dictionaries each with a name and an exe (a
     #	command without arguments), and waits for all of them.
     #
+    # Arguments:
+    #	tests	a list of dictionaries, each with a name and an exe.
+    #
     # Results:
     #	A dictionary: each test's name -> {rc secs}.
+    #
+    # Side effects:
+    #	Runs the tests; enters the event loop (vwait) until all are done.
 
     method run {tests} {
         set names [lmap test $tests {dict get $test name}]
@@ -210,6 +271,12 @@ oo::class create ::homa::lc::Batch {
     # Fill --
     #
     #	Starts waiting tests, up to the limit.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Starts processes and removes them from the waiting list.
 
     method Fill {} {
         while {[llength $waiting] && $running < $limit} {
@@ -223,6 +290,17 @@ oo::class create ::homa::lc::Batch {
     #	Starts one test. microvm.nix puts the QMP socket (<hostname>.sock)
     #	in the current directory, and every pair's server is node0: hence a
     #	directory each.
+    #
+    # Arguments:
+    #	name	the test's name.
+    #	exe	the command to run.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Creates the test's directory and .out file and starts its process,
+    #	or records an error result if it cannot start.
 
     method Start {name exe} {
         set dir [file join $logdir $name]
@@ -249,6 +327,19 @@ oo::class create ::homa::lc::Batch {
     #
     #	Copies a test's output to its .out file. At eof, records its exit
     #	status and time, and starts the next waiting test.
+    #
+    # Arguments:
+    #	name	the test's name.
+    #	chan	the pipe from the test's process.
+    #	out	the .out file's channel.
+    #	started	when it started, from clock seconds.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Writes to the .out file; at eof closes both channels, prints a done
+    #	line, records the result and starts more tests.
 
     method Copy {name chan out started} {
         puts -nonewline $out [read $chan]
@@ -288,8 +379,18 @@ oo::class create ::homa::lc::Table {
     # failed	how many phases failed.
     variable rows failed
 
+    # constructor --
+    #
+    #	Makes an empty phase table.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Sets the object's namespace path to ::homa::lc.
+
     constructor {} {
-        # Methods run in the object's namespace; find report and spit.
+        # Methods run in the object's namespace; find report and writeFile.
         namespace path ::homa::lc
         set rows {}
         set failed 0
@@ -305,6 +406,12 @@ oo::class create ::homa::lc::Table {
     #	rc	0 for PASS, skip for SKIP, anything else for FAIL.
     #	start	when it started, from clock milliseconds.
     #	detail	a short note for the table.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Adds a row, counts a FAIL, and prints the phase line.
 
     method record {id name rc start {detail {}}} {
         set result [report verdict $rc]
@@ -319,6 +426,17 @@ oo::class create ::homa::lc::Table {
     # skip --
     #
     #	Records a phase that could not run.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #	name	its name.
+    #	detail	why it could not run.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	As record: adds a SKIP row and prints its line.
 
     method skip {id name detail} {
         my record $id $name skip [clock milliseconds] $detail
@@ -332,8 +450,17 @@ oo::class create ::homa::lc::Table {
     #	stack goes to phase-errors.log), a break or continue, or a result
     #	without a valid rc.
     #
+    # Arguments:
+    #	id	the phase's number.
+    #	name	its name.
+    #	script	the phase's script.
+    #
     # Results:
     #	The phase's rc.
+    #
+    # Side effects:
+    #	Whatever script does; records the phase (see record), and appends
+    #	an error's stack to phase-errors.log.
 
     method phase {id name script} {
         set start [clock milliseconds]
@@ -346,7 +473,7 @@ oo::class create ::homa::lc::Table {
         } on continue {} {
             set outcome {1 {error: continue in phase script}}
         } on error {message options} {
-            spit phase-errors.log "phase $id $name: $message\n[dict get $options -errorinfo]" a
+            writeFile phase-errors.log "phase $id $name: $message\n[dict get $options -errorinfo]" a
             set outcome [list 1 "error: $message"]
         }
         lassign $outcome rc detail
@@ -358,6 +485,15 @@ oo::class create ::homa::lc::Table {
     #
     #	Returns a phase script's result as {rc detail}, or {1 "error: ..."}
     #	if it is not a list with a valid rc.
+    #
+    # Arguments:
+    #	result	the phase script's result.
+    #
+    # Results:
+    #	{rc detail}, or {1 "error: ..."}.
+    #
+    # Side effects:
+    #	None.
 
     method Outcome {result} {
         try {
@@ -373,12 +509,18 @@ oo::class create ::homa::lc::Table {
     #
     #	Writes summary.md (in the current directory), prints it and the
     #	VERDICT line, and returns the exit code for the run.
+    #
+    # Results:
+    #	0 if no phase failed, else 1.
+    #
+    # Side effects:
+    #	Writes summary.md and prints the table and the VERDICT line.
 
     method verdict {} {
         set table [join [list \
             "| Phase | Name | Result | Time (ms) | Detail |" \
             "|---|---|---|---|---|" {*}$rows] \n]
-        spit summary.md $table
+        writeFile summary.md $table
         puts "\n$table\n"
         if {$failed} {
             puts "VERDICT: FAIL ($failed phases)"
@@ -421,6 +563,23 @@ oo::class create ::homa::lc::Node {
     variable table suffix dir runner serialPort virtioPort timeouts \
         qemu qemuLog console shell poweroffSent
 
+    # constructor --
+    #
+    #	Makes a node; QEMU is not started until start.
+    #
+    # Arguments:
+    #	phaseTable	the run's homa::lc::Table.
+    #	logDir		the guest's log directory.
+    #	vm		a dictionary: runner, serial and virtio.
+    #	phaseTimeouts	seconds per phase: start, serial, virtio, command, exit.
+    #	nameSuffix	appended to this node's phase names.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Sets the object's namespace path to ::homa::lc.
+
     constructor {phaseTable logDir vm phaseTimeouts {nameSuffix {}}} {
         namespace path ::homa::lc
         set table $phaseTable
@@ -449,6 +608,12 @@ oo::class create ::homa::lc::Node {
     # dir --
     #
     #	Returns the node's log directory.
+    #
+    # Results:
+    #	The node's log directory.
+    #
+    # Side effects:
+    #	None.
 
     method dir {} {
         return $dir
@@ -457,6 +622,12 @@ oo::class create ::homa::lc::Node {
     # shell --
     #
     #	Returns 1 while the node's shell answers on hvc0.
+    #
+    # Results:
+    #	1 if the shell answers, else 0.
+    #
+    # Side effects:
+    #	None.
 
     method shell {} {
         return [expr {$shell && [$console alive]}]
@@ -466,6 +637,16 @@ oo::class create ::homa::lc::Node {
     #
     #	Returns 1 if the shell answers; otherwise SKIPs the phase and
     #	returns 0.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #	name	its name.
+    #
+    # Results:
+    #	1 if the shell answers, else 0.
+    #
+    # Side effects:
+    #	Records a SKIP for the phase if the shell is gone.
 
     method need {id name} {
         if {[my shell]} {
@@ -480,8 +661,16 @@ oo::class create ::homa::lc::Node {
     #	A phase that needs this node's shell: runs script as Table phase
     #	does, in the caller's scope, or SKIPs it if the shell is gone.
     #
+    # Arguments:
+    #	id	the phase's number.
+    #	name	its name.
+    #	script	the phase's script.
+    #
     # Results:
     #	The phase's rc, or skip.
+    #
+    # Side effects:
+    #	As Table phase, or records a SKIP.
 
     method phase {id name script} {
         if {![my need $id $name]} {
@@ -503,10 +692,13 @@ oo::class create ::homa::lc::Node {
     #
     # Results:
     #	The Console's result, {rc out}.
+    #
+    # Side effects:
+    #	Runs cmd in the guest; writes or appends to the log file.
 
     method run {log timeout cmd {access w}} {
         set result [$console run $cmd $timeout]
-        spit [file join $dir $log] [dict get $result out] $access
+        writeFile [file join $dir $log] [dict get $result out] $access
         return $result
     }
 
@@ -515,6 +707,15 @@ oo::class create ::homa::lc::Node {
     # start --
     #
     #	Starts QEMU in the node's directory and waits for its console ports.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase).
+    #
+    # Side effects:
+    #	Records the phase; starts QEMU, its output copied to qemu.log.
 
     method start {id} {
         $table phase $id start$suffix {
@@ -541,6 +742,15 @@ oo::class create ::homa::lc::Node {
     #
     #	Waits for the first kernel line in serial.log. NixOS boots "quiet",
     #	so that is any kernel message, not the banner.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase).
+    #
+    # Side effects:
+    #	Records the phase.
 
     method serial {id} {
         $table phase $id serial$suffix {
@@ -556,6 +766,16 @@ oo::class create ::homa::lc::Node {
     #	probe also makes it a plain shell: no echo, no (coloured) prompt, no
     #	pager. Probes sent before the shell started are answered late, and
     #	the console's numbered markers skip those answers.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase).
+    #
+    # Side effects:
+    #	Records the phase; opens the hvc0 Console, sets shell, and writes
+    #	virtio.log and uptime.log.
 
     method virtio {id} {
         $table phase $id virtio$suffix {
@@ -580,6 +800,15 @@ oo::class create ::homa::lc::Node {
     # dmesg --
     #
     #	Fails if the guest's dmesg reports a kernel bug or warning.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase), or skip.
+    #
+    # Side effects:
+    #	Records the phase; writes dmesg.log and prints any oops lines.
 
     method dmesg {id} {
         my phase $id dmesg$suffix {
@@ -594,6 +823,15 @@ oo::class create ::homa::lc::Node {
     # shutdown --
     #
     #	Sends poweroff over hvc0, without waiting.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase), or skip.
+    #
+    # Side effects:
+    #	Records the phase; the guest powers off; sets poweroffSent.
 
     method shutdown {id} {
         my phase $id shutdown$suffix {
@@ -605,6 +843,15 @@ oo::class create ::homa::lc::Node {
     # waitExit --
     #
     #	Waits for QEMU to exit, which it must not do before the poweroff.
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase).
+    #
+    # Side effects:
+    #	Records the phase.
 
     method waitExit {id} {
         $table phase $id exit$suffix {
@@ -624,10 +871,19 @@ oo::class create ::homa::lc::Node {
     #	Fails if serial.log reports a kernel bug or warning anywhere,
     #	including after the shell has gone (late RCU callbacks: STATUS.md
     #	F8).
+    #
+    # Arguments:
+    #	id	the phase's number.
+    #
+    # Results:
+    #	The phase's rc (see Table phase).
+    #
+    # Side effects:
+    #	Records the phase and prints any oops lines.
 
     method serialLog {id} {
         $table phase $id serial-log$suffix {
-            set text [slurp [file join $dir serial.log]]
+            set text [readFile [file join $dir serial.log]]
             my Report [lrange [parse oops $text RIP:] 0 5]
             list [expr {[parse oopsCount $text] > 0}] "[llength [parse lines $text]] lines"
         }
@@ -638,6 +894,15 @@ oo::class create ::homa::lc::Node {
     # Ms --
     #
     #	Returns timeouts(key), which is in seconds, in milliseconds.
+    #
+    # Arguments:
+    #	key	a phase name in timeouts.
+    #
+    # Results:
+    #	The timeout in milliseconds.
+    #
+    # Side effects:
+    #	None.
 
     method Ms {key} {
         return [expr {[dict get $timeouts $key] * 1000}]
@@ -646,6 +911,12 @@ oo::class create ::homa::lc::Node {
     # Listening --
     #
     #	Returns 1 if the virtio console port accepts a connection.
+    #
+    # Results:
+    #	1 if it accepts one, else 0.
+    #
+    # Side effects:
+    #	Opens and closes a connection to the port.
 
     method Listening {} {
         if {[catch {socket 127.0.0.1 $virtioPort} probe]} {
@@ -659,15 +930,27 @@ oo::class create ::homa::lc::Node {
     #
     #	Returns the timestamp of the first kernel line in serial.log so far,
     #	or an empty string.
+    #
+    # Results:
+    #	The timestamp, or an empty string.
+    #
+    # Side effects:
+    #	None.
 
     method FirstKernelLine {} {
-        return [parse firstKernelLine [slurp [file join $dir serial.log]]]
+        return [parse firstKernelLine [readFile [file join $dir serial.log]]]
     }
 
     # Probe --
     #
     #	Sends the plain-shell settings over hvc0 and returns 1 if the shell
     #	answered them within 3 s.
+    #
+    # Results:
+    #	1 if the shell answered, else 0.
+    #
+    # Side effects:
+    #	Changes the guest shell's settings; appends to virtio.log.
 
     method Probe {} {
         set plain [join {
@@ -679,6 +962,15 @@ oo::class create ::homa::lc::Node {
     # Report --
     #
     #	Prints lines of guest output under the phase line, indented.
+    #
+    # Arguments:
+    #	lines	the lines to print.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Prints to stdout.
 
     method Report {lines} {
         foreach line $lines {
@@ -689,6 +981,12 @@ oo::class create ::homa::lc::Node {
     # Drain --
     #
     #	Copies QEMU's output to qemu.log. At end of file QEMU has exited.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Writes to qemu.log; at end of file reaps QEMU (see Reap).
 
     method Drain {} {
         puts -nonewline $qemuLog [read $qemu]
@@ -700,6 +998,12 @@ oo::class create ::homa::lc::Node {
     # Reap --
     #
     #	Reaps QEMU and closes its log.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Closes the QEMU pipe and qemu.log, and sets qemu to "".
 
     method Reap {} {
         chan configure $qemu -blocking 1

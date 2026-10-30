@@ -1,6 +1,6 @@
 # files.test --
 #
-#	Table-driven tests for homa::lc::slurp and spit, the file helpers
+#	Table-driven tests for homa::lc::readFile and writeFile, the file helpers
 #	every driver reads its config and writes its logs with. Every row is
 #	{description category input outcome expected}; see testTable in
 #	helpers.tcl.
@@ -48,7 +48,7 @@ proc rawFile {path hex} {
     close $chan
 }
 
-# Each row's input is text, which spit writes and slurp reads back.
+# Each row's input is text, which writeFile writes and readFile reads back.
 testTable filesRoundTrip {
     {"ASCII comes back as written" positive "hello" ok "hello\n"}
     {"non-ASCII (the matrix's kernel arrow) comes back as written" positive
@@ -58,12 +58,12 @@ testTable filesRoundTrip {
     {"a trailing newline is kept, then one more added" corner "a\n" ok "a\n\n"}
 } {
     withFile f {
-        homa::lc::spit $f $input
-        homa::lc::slurp $f
+        homa::lc::writeFile $f $input
+        homa::lc::readFile $f
     }
 }
 
-# Each row's input is text: the bytes spit writes, as hex.
+# Each row's input is text: the bytes writeFile writes, as hex.
 testTable filesSpitBytes {
     {"the arrow is written as three UTF-8 bytes" positive "→" ok e286920a}
     {"an em dash, as in an empty matrix cell" positive "—" ok e280940a}
@@ -71,7 +71,7 @@ testTable filesSpitBytes {
     {"empty text writes no bytes" boundary "" ok ""}
 } {
     withFile f {
-        homa::lc::spit $f $input
+        homa::lc::writeFile $f $input
         bytes $f
     }
 }
@@ -86,12 +86,12 @@ testTable filesSlurp {
         if {$input ne "missing"} {
             rawFile $f $input
         }
-        homa::lc::slurp $f
+        homa::lc::readFile $f
     }
 }
 
 # Each row's input is a file's bytes, as hex, that are not all UTF-8; the
-# body returns how many characters slurp read (what each bad byte becomes
+# body returns how many characters readFile read (what each bad byte becomes
 # differs between Tcl 8.6 and 9).
 testTable filesSlurpBadBytes {
     {"a lone byte that is not UTF-8 reads as one character" negative 61ff62 ok 3}
@@ -100,7 +100,7 @@ testTable filesSlurpBadBytes {
 } {
     withFile f {
         rawFile $f $input
-        string length [homa::lc::slurp $f]
+        string length [homa::lc::readFile $f]
     }
 }
 
@@ -112,9 +112,9 @@ testTable filesAppend {
 } {
     withFile f {
         foreach text $input {
-            homa::lc::spit $f $text a
+            homa::lc::writeFile $f $text a
         }
-        homa::lc::slurp $f
+        homa::lc::readFile $f
     }
 }
 

@@ -55,9 +55,19 @@ oo::class create Pair {
     #
     #	Reads configFile, moves to the log directory and creates the nodes
     #	(without starting them).
+    #
+    # Arguments:
+    #	configFile	the path of config.json.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Changes the current directory to the log directory and prints where
+    #	the logs are.
 
     constructor {configFile} {
-        set config [json::json2dict [homa::lc::slurp $configFile]]
+        set config [json::json2dict [homa::lc::readFile $configFile]]
         set timeout [dict get $config timeouts command]
         set logdir [homa::lc::logdir]
         cd $logdir
@@ -83,7 +93,15 @@ oo::class create Pair {
 
     # run --
     #
-    #	Runs every phase and returns the exit code.
+    #	Runs every phase.
+    #
+    # Results:
+    #	The exit code: 0 if every phase passed, otherwise 1.
+    #
+    # Side effects:
+    #	Boots, drives and stops both guests, records each phase in the
+    #	table, writes the logs and summary.md, and prints each phase, the
+    #	HOMA_PAIR_* lines and the verdict.
 
     method run {} {
         foreach step {start serial virtio} id {1 2 3} {
@@ -192,6 +210,14 @@ oo::class create Pair {
     #	must		a counter that must have moved (summed over both
     #			nodes), or "": packets_sent_RESEND under loss, the
     #			qdisc and pacer counters with Homa's qdisc.
+    #
+    # Results:
+    #	The phase's rc, or skip.
+    #
+    # Side effects:
+    #	Records the phase; runs the traffic on both guests; writes
+    #	traffic/<name>/ (logs and deltas); prints the counter deltas, and
+    #	for the baseline, the HOMA_PAIR_* lines.
 
     method Traffic {id name {loss {}} {must {}}} {
         my BothPhase $id "traffic $name" {
@@ -201,7 +227,7 @@ oo::class create Pair {
             set deltaLines [lmap {key counters} [dict get $measured deltas] {
                 string cat "$key: " [report deltaLine $counters]
             }]
-            homa::lc::spit [file join $dir deltas] [join $deltaLines \n]
+            homa::lc::writeFile [file join $dir deltas] [join $deltaLines \n]
             set outcome [report trafficDetail $measured [dict get $config echoRpcs] $must]
 
             if {$name eq "baseline"} {
@@ -224,6 +250,17 @@ oo::class create Pair {
     #	Replaces eth1's root qdisc with netem on both nodes, so its counters
     #	start from zero, and checks that the limit took. The detail is
     #	node1's netem settings.
+    #
+    # Arguments:
+    #	id, name	the phase; it is named "netem <name>".
+    #	netemArgs	the arguments to tc's netem qdisc.
+    #
+    # Results:
+    #	The phase's rc, or skip.
+    #
+    # Side effects:
+    #	Replaces eth1's root qdisc on both guests, writes netem-<name>.log
+    #	in each node's directory, and records the phase.
 
     method Netem {id name netemArgs} {
         set limit [dict get $config netem limit]
@@ -247,6 +284,18 @@ oo::class create Pair {
     #
     #	Runs one command on both nodes as a single phase. The detail is
     #	given, or else node1's output on one line.
+    #
+    # Arguments:
+    #	id, name	the phase.
+    #	log		the log file's name in each node's directory.
+    #	cmd		the command.
+    #	detail		the phase's detail, or "" for node1's output.
+    #
+    # Results:
+    #	The phase's rc, or skip.
+    #
+    # Side effects:
+    #	Runs cmd on both guests, writes log on each, and records the phase.
 
     method OnBoth {id name log cmd {detail {}}} {
         my BothPhase $id $name {
@@ -272,9 +321,17 @@ oo::class create Pair {
     #	and over TCP) between two counter snapshots of each node, and with
     #	netem, reads each node's drops. Logs go to dir.
     #
+    # Arguments:
+    #	dir	the run's log directory.
+    #	loss	netem's configured loss in percent, or "" without netem.
+    #
     # Results:
     #	The measured dictionary report trafficDetail takes, plus rc: the
     #	snapshots' combined exit status.
+    #
+    # Side effects:
+    #	Runs the traffic and counter reads on the guests and writes their
+    #	logs to dir.
 
     method Measure {dir loss} {
         set client [my Node node1]
@@ -310,8 +367,15 @@ oo::class create Pair {
     #	Reads Homa's counters on each node, logging them to
     #	dir/<node>-<name>.
     #
+    # Arguments:
+    #	dir	the log directory.
+    #	name	the snapshot's name, e.g. stats0.
+    #
     # Results:
     #	A list: the combined exit status, and node name -> counters.
+    #
+    # Side effects:
+    #	Runs homa-node-stats on both guests and writes dir/<node>-<name>.
 
     method Snapshot {dir name} {
         set status 0
@@ -326,10 +390,19 @@ oo::class create Pair {
 
     # CpNode --
     #
-    #	Returns the command for one cp_node client run over proto (homa or
-    #	tcp), which prints cp_node's last stats line. Output goes to a file,
-    #	grepped afterwards: under the console shell's job control, timeout's
-    #	SIGTERM also reaches the rest of a pipeline, losing its output.
+    #	Builds the command for one cp_node client run over proto, which
+    #	prints cp_node's last stats line. Output goes to a file, grepped
+    #	afterwards: under the console shell's job control, timeout's SIGTERM
+    #	also reaches the rest of a pipeline, losing its output.
+    #
+    # Arguments:
+    #	proto	homa or tcp.
+    #
+    # Results:
+    #	The command.
+    #
+    # Side effects:
+    #	None.
 
     method CpNode {proto} {
         lassign [lmap key {workload gbps seconds homaPort} {dict get $config cpNode $key}] \
@@ -346,7 +419,16 @@ oo::class create Pair {
 
     # Node --
     #
-    #	Returns the homa::lc::Node called name (node0 or node1).
+    #	Looks up one of the nodes.
+    #
+    # Arguments:
+    #	name	node0 or node1.
+    #
+    # Results:
+    #	The homa::lc::Node called name.
+    #
+    # Side effects:
+    #	None.
 
     method Node {name} {
         return [dict get $nodes $name]
@@ -357,8 +439,15 @@ oo::class create Pair {
     #	A phase that needs both nodes' shells: runs script as Table phase
     #	does, in the caller's scope, or SKIPs it naming which shell is gone.
     #
+    # Arguments:
+    #	id, name	the phase.
+    #	script		the phase script; it returns {rc detail}.
+    #
     # Results:
     #	The phase's rc, or skip.
+    #
+    # Side effects:
+    #	Runs script and records the phase (or the SKIP) in the table.
 
     method BothPhase {id name script} {
         set up [lmap key {node0 node1} {[my Node $key] shell}]
@@ -374,6 +463,18 @@ oo::class create Pair {
     #	Runs a phase on each node, as "<name> <node>", like foreach: script
     #	runs in the caller's scope with varName set to the homa::lc::Node,
     #	and a node without a shell SKIPs it (see homa::lc::Node phase).
+    #
+    # Arguments:
+    #	varName		the caller's variable set to each node.
+    #	id, name	the phase; on each node it is named "<name> <node>".
+    #	script		the phase script; it returns {rc detail}.
+    #
+    # Results:
+    #	None.
+    #
+    # Side effects:
+    #	Sets varName in the caller, runs script, and records a phase (or a
+    #	SKIP) per node in the table.
 
     method EachNode {varName id name script} {
         upvar 1 $varName node
@@ -385,7 +486,16 @@ oo::class create Pair {
 
 # main --
 #
-#	Runs the pair lifecycle and returns the exit code.
+#	Runs the pair lifecycle.
+#
+# Arguments:
+#	configFile	the path of config.json.
+#
+# Results:
+#	The exit code: 0 if every phase passed, otherwise 1.
+#
+# Side effects:
+#	Those of Pair run; both guests are stopped at the end.
 
 proc main {configFile} {
     set pair [Pair new $configFile]

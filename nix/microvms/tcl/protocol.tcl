@@ -92,6 +92,9 @@ proc ::homa::lc::protocol::line {id line} {
 #
 #	Raises an error unless id is a positive integer.
 #
+# Arguments:
+#	id	a command's number.
+#
 # Results:
 #	None.
 #

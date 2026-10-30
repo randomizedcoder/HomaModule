@@ -94,22 +94,22 @@ testTable countLines {
 
 set keys {packets_sent_DATA eth1_rx_packets rpc_timeouts}
 
-testTable snap [list \
-    [list "per-core lines are summed" positive \
-        [list "packets_sent_DATA 10 sent\npackets_sent_DATA 5 sent\neth1_rx_packets 7" $keys] ok \
-        {packets_sent_DATA 15 eth1_rx_packets 7 rpc_timeouts 0}] \
-    [list "other counters are ignored" positive \
-        [list "unknown_rpcs 9\npackets_sent_DATA 1" $keys] ok \
-        {packets_sent_DATA 1 eth1_rx_packets 0 rpc_timeouts 0}] \
-    [list "no input gives zeros" boundary [list {} $keys] ok \
-        {packets_sent_DATA 0 eth1_rx_packets 0 rpc_timeouts 0}] \
-    [list "a non-numeric value is skipped" corner \
-        [list "packets_sent_DATA n/a\npackets_sent_DATA 4" $keys] ok \
-        {packets_sent_DATA 4 eth1_rx_packets 0 rpc_timeouts 0}] \
-    [list "64-bit counters do not overflow" boundary \
-        [list "packets_sent_DATA 9223372036854775807\npackets_sent_DATA 1" $keys] ok \
-        {packets_sent_DATA 9223372036854775808 eth1_rx_packets 0 rpc_timeouts 0}] \
-] {parse snap {*}$input}
+testTable snap [subst {
+    {"per-core lines are summed" positive
+        {"packets_sent_DATA 10 sent\npackets_sent_DATA 5 sent\neth1_rx_packets 7" {$keys}} ok
+        {packets_sent_DATA 15 eth1_rx_packets 7 rpc_timeouts 0}}
+    {"other counters are ignored" positive
+        {"unknown_rpcs 9\npackets_sent_DATA 1" {$keys}} ok
+        {packets_sent_DATA 1 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"no input gives zeros" boundary {{} {$keys}} ok
+        {packets_sent_DATA 0 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"a non-numeric value is skipped" corner
+        {"packets_sent_DATA n/a\npackets_sent_DATA 4" {$keys}} ok
+        {packets_sent_DATA 4 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"64-bit counters do not overflow" boundary
+        {"packets_sent_DATA 9223372036854775807\npackets_sent_DATA 1" {$keys}} ok
+        {packets_sent_DATA 9223372036854775808 eth1_rx_packets 0 rpc_timeouts 0}}
+}] {parse snap {*}$input}
 
 testTable delta {
     {"only counters that moved" positive {{a 1 b 2 c 3} {a 1 b 5 c 0}} ok {b 3 c -3}}
@@ -135,14 +135,14 @@ testTable get {
 
 set cpLine {1 clients: 0.40 Kops/sec, 0.33 Gbps, RTT (us) P50 148.99 P99 26162.00 P99.9 30000.00}
 
-testTable field [list \
-    [list "Kops after clients:" positive [list $cpLine clients:] ok 0.40] \
-    [list "P99, not P99.9" corner [list $cpLine P99] ok 26162.00] \
-    [list "the last word has no value" boundary [list $cpLine 30000.00] ok -] \
-    [list "an absent word" negative [list $cpLine P10] ok -] \
-    [list "an empty line" boundary [list {} P99] ok -] \
-    [list "a caller's placeholder" positive [list {} P99 —] ok —] \
-] {parse field {*}$input}
+testTable field [subst {
+    {"Kops after clients:" positive {{$cpLine} clients:} ok 0.40}
+    {"P99, not P99.9" corner {{$cpLine} P99} ok 26162.00}
+    {"the last word has no value" boundary {{$cpLine} 30000.00} ok -}
+    {"an absent word" negative {{$cpLine} P10} ok -}
+    {"an empty line" boundary {{} P99} ok -}
+    {"a caller's placeholder" positive {{} P99 —} ok —}
+}] {parse field {*}$input}
 
 testTable positive {
     {"a positive float" positive 26162.00 ok 1}
@@ -154,20 +154,20 @@ testTable positive {
 } {parse positive $input}
 
 # The input is {want echoes homa tcp}.
-testTable trafficFailures [list \
-    [list "everything completed" positive [list 6 6 $cpLine $cpLine] ok {}] \
-    [list "echo short of six" negative [list 6 5 $cpLine $cpLine] ok echo] \
-    [list "echo timed out (no count)" corner [list 6 {} $cpLine $cpLine] ok echo] \
-    [list "Homa and TCP stalled" negative [list 6 6 {P50 0.00 P99 0.00} {}] ok {homa tcp}] \
-    [list "everything failed" negative [list 6 0 {} {}] ok {echo homa tcp}] \
-    [list "a different echo count is honoured" positive [list 3 3 $cpLine $cpLine] ok {}] \
-    [list "more echoes than wanted fails" corner [list 6 7 $cpLine $cpLine] ok echo] \
-    [list "want 0 and no echoes passes" boundary [list 0 0 $cpLine $cpLine] ok {}] \
-    [list "a non-numeric echo count fails" corner \
-        [list 6 {grep: no such file} $cpLine $cpLine] ok echo] \
-    [list "a bad want is an error" negative [list x 6 $cpLine $cpLine] error \
-        {bad echo count "x"}] \
-] {parse trafficFailures {*}$input}
+testTable trafficFailures [subst {
+    {"everything completed" positive {6 6 {$cpLine} {$cpLine}} ok {}}
+    {"echo short of six" negative {6 5 {$cpLine} {$cpLine}} ok echo}
+    {"echo timed out (no count)" corner {6 {} {$cpLine} {$cpLine}} ok echo}
+    {"Homa and TCP stalled" negative {6 6 {P50 0.00 P99 0.00} {}} ok {homa tcp}}
+    {"everything failed" negative {6 0 {} {}} ok {echo homa tcp}}
+    {"a different echo count is honoured" positive {3 3 {$cpLine} {$cpLine}} ok {}}
+    {"more echoes than wanted fails" corner {6 7 {$cpLine} {$cpLine}} ok echo}
+    {"want 0 and no echoes passes" boundary {0 0 {$cpLine} {$cpLine}} ok {}}
+    {"a non-numeric echo count fails" corner
+        {6 {grep: no such file} {$cpLine} {$cpLine}} ok echo}
+    {"a bad want is an error" negative {x 6 {$cpLine} {$cpLine}} error
+        {bad echo count "x"}}
+}] {parse trafficFailures {*}$input}
 
 # ---- tc netem ---------------------------------------------------------------------
 
@@ -177,13 +177,13 @@ set tcNetem "qdisc netem 8001: root refcnt 2 limit 100000 loss 5%
 set tcHoma "qdisc homa 8006: root refcnt 2
  Sent 999 bytes 77 pkt (dropped 1, overlimits 0 requeues 0)"
 
-testTable netemSent [list \
-    [list "packets and drops of the netem qdisc" positive $tcNetem ok {96410 4559}] \
-    [list "another qdisc's counters are not netem's" negative $tcHoma ok {}] \
-    [list "netem after another qdisc" corner "$tcHoma\n$tcNetem" ok {96410 4559}] \
-    [list "a netem line without counters" corner "qdisc netem 8001: root" ok {}] \
-    [list "no output" boundary {} ok {}] \
-] {parse netemSent $input}
+testTable netemSent [subst {
+    {"packets and drops of the netem qdisc" positive {$tcNetem} ok {96410 4559}}
+    {"another qdisc's counters are not netem's" negative {$tcHoma} ok {}}
+    {"netem after another qdisc" corner "$tcHoma\n$tcNetem" ok {96410 4559}}
+    {"a netem line without counters" corner "qdisc netem 8001: root" ok {}}
+    {"no output" boundary {} ok {}}
+}] {parse netemSent $input}
 
 testTable dropRate {
     {"no loss configured, none seen" positive {1000 0 0} ok {rate 0.00 ok 1}}
@@ -204,22 +204,22 @@ set tcLoss0 "qdisc netem 8002: root refcnt 2 limit 100000
  Sent 1500 bytes 1000 pkt (dropped 1, overlimits 0 requeues 0)"
 
 # The input is {node text loss}.
-testTable netemCheck [list \
-    [list "5 % loss measured as 4.52 % passes" positive [list node1 $tcNetem 5] ok \
-        {ok 1 report {node1 4559/100969 (4.52%)}}] \
-    [list "no netem qdisc: drops unknown, nothing to judge" negative \
-        [list node1 $tcHoma 5] ok {ok 1 report {node1 ?/0 (0.00%)}}] \
-    [list "no output at all" boundary [list node0 {} 0] ok \
-        {ok 1 report {node0 ?/0 (0.00%)}}] \
-    [list "0 % configured, 1 drop seen" negative [list node0 $tcLoss0 0] ok \
-        {ok 0 report {node0 1/1001 (0.10%)}}] \
-    [list "netem after another qdisc" corner [list node1 "$tcHoma\n$tcNetem" 5] ok \
-        {ok 1 report {node1 4559/100969 (4.52%)}}] \
-    [list "far more drops than configured" negative [list node1 $tcNetem 1] ok \
-        {ok 0 report {node1 4559/100969 (4.52%)}}] \
-    [list "a bad loss is an error" negative [list node1 $tcNetem abc] error \
-        {not a number: "abc"}] \
-] {parse netemCheck {*}$input}
+testTable netemCheck [subst {
+    {"5 % loss measured as 4.52 % passes" positive {node1 {$tcNetem} 5} ok
+        {ok 1 report {node1 4559/100969 (4.52%)}}}
+    {"no netem qdisc: drops unknown, nothing to judge" negative
+        {node1 {$tcHoma} 5} ok {ok 1 report {node1 ?/0 (0.00%)}}}
+    {"no output at all" boundary {node0 {} 0} ok
+        {ok 1 report {node0 ?/0 (0.00%)}}}
+    {"0 % configured, 1 drop seen" negative {node0 {$tcLoss0} 0} ok
+        {ok 0 report {node0 1/1001 (0.10%)}}}
+    {"netem after another qdisc" corner {node1 "$tcHoma\n$tcNetem" 5} ok
+        {ok 1 report {node1 4559/100969 (4.52%)}}}
+    {"far more drops than configured" negative {node1 {$tcNetem} 1} ok
+        {ok 0 report {node1 4559/100969 (4.52%)}}}
+    {"a bad loss is an error" negative {node1 {$tcNetem} abc} error
+        {not a number: "abc"}}
+}] {parse netemCheck {*}$input}
 
 testTable netemLimitOk {
     {"the limit took" positive

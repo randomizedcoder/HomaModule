@@ -34,9 +34,9 @@ proc runTable {phases} {
                 $phaseTable phase $id $name $script
             }] [$phaseTable verdict]
         }] results printed
-        set summary [homa::lc::slurp summary.md]
+        set summary [homa::lc::readFile summary.md]
         set errorLog [expr {[file exists phase-errors.log]
-            ? [homa::lc::slurp phase-errors.log] : "absent"}]
+            ? [homa::lc::readFile phase-errors.log] : "absent"}]
     } finally {
         cd $here
         $phaseTable destroy

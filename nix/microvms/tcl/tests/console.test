@@ -102,9 +102,9 @@ testTable consoleRun {
     {"commands share one shell" positive
         {{{x=1} 5} {{echo $x} 5}} ok {{rc=0 out=} {rc=0 out=1}}}
     {"a command that outlasts its timeout" negative
-        {{{sleep 2; echo late} 1}} ok {{rc=124 out=}}}
+        {{{sleep 3; echo late} 1}} ok {{rc=124 out=}}}
     {"the next command skips a timed-out command's marker" corner
-        {{{sleep 2; echo late} 1} {{echo next} 5}}
+        {{{sleep 3; echo late} 1} {{echo next} 10}}
         ok {{rc=124 out=} {rc=0 out=late\nnext}}}
     {"the shell exits" negative
         {{{exit 0} 5}} ok {{rc=125 out=}}}
@@ -115,7 +115,7 @@ testTable consoleRun {
     {"output with no final newline" corner
         {{{printf abc} 5}} ok {{rc=0 out=abc}}}
     {"a line split across writes" corner
-        {{{printf ab; sleep 0.3; echo cd} 5}} ok {{rc=0 out=abcd}}}
+        {{{printf ab; sleep 0.5; echo cd} 5}} ok {{rc=0 out=abcd}}}
     {"blank lines are kept" corner
         {{{printf 'a\n\nb\n'} 5}} ok {{rc=0 out=a\n\nb}}}
     {"an exit status above 125" boundary

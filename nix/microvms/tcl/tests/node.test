@@ -26,7 +26,7 @@ proc freePort {} {
 #	Writes an executable sh script.
 
 proc script {path body} {
-    homa::lc::spit $path "#!/bin/sh\n$body"
+    homa::lc::writeFile $path "#!/bin/sh\n$body"
     file attributes $path -permissions 0755
 }
 

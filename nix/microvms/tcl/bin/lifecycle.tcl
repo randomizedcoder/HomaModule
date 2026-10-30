@@ -27,10 +27,21 @@ namespace import ::homa::lc::parse
 
 # main --
 #
-#	Runs the phases and returns the exit code.
+#	Runs the phases.
+#
+# Arguments:
+#	configFile	the path of config.json.
+#
+# Results:
+#	The exit code: 0 if every phase passed, otherwise 1.
+#
+# Side effects:
+#	Changes to the log directory, boots and stops the guest, sends the
+#	phases' commands to it, writes the phase logs and summary.md, and
+#	prints each phase and the verdict.
 
 proc main {configFile} {
-    set config [json::json2dict [homa::lc::slurp $configFile]]
+    set config [json::json2dict [homa::lc::readFile $configFile]]
     set logdir [homa::lc::logdir]
     cd $logdir
     puts "lifecycle[dict get $config label]: logs in $logdir"

@@ -114,7 +114,7 @@ in
     TCLLIBPATH="${pkgs.expect}/lib" tclsh tests/all.tcl
 
     echo "== pure tests, Tcl 9.0"
-    ${pkgs.tcl-9_0}/bin/tclsh tests/all.tcl -file "parse.test protocol.test report.test"
+    ${pkgs.tcl-9_0}/bin/tclsh tests/all.tcl -file "parse.test protocol.test report.test style.test"
 
     touch $out
   '';
