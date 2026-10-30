@@ -157,7 +157,7 @@ Every kernel series has its own targets, so you can build or boot exactly the on
 | Series | Source | `homa-module-<s>` | `homa-microvm[-test]-<s>` | Status on `main` |
 |---|---|---|---|---|
 | `7_3` (default) | nixpkgs `linuxPackages_latest` | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
-| `7_0`, `7_1`, `7_2` | kernel.org tarballs (`kernel-src.nix`) | ✅ compile check | — (no bootable kernel yet) | supported |
+| `7_0`, `7_1`, `7_2` | kernel.org tarballs (`kernel/src.nix`) | ✅ compile check | — (no bootable kernel yet) | supported |
 | `6_12` | nixpkgs | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
 | `6_18` | nixpkgs (6.18.57) | ❌ | — | stable backported the 7.x socket API changes; see [`STATUS.md`](STATUS.md) F1 |
 | `6_1`, `6_6` | nixpkgs | ❌ | — | below Homa's supported range |
@@ -172,7 +172,7 @@ nix run   .#homa-pair-test-6_12-7_3   # Homa between a 6.12 server VM and a 7.3 
 ```
 
 VM and pair targets exist only for kernels where the module builds (`vmSeries` in
-`kernel.nix`). Pair targets cover every server/client combination: `6_12-6_12`, `6_12-7_3`,
+`kernel/config.nix`). Pair targets cover every server/client combination: `6_12-6_12`, `6_12-7_3`,
 `7_3-6_12` and `7_3-7_3`. The mixed pairs check that Homa built for one kernel talks to Homa
 built for another. Each pair has its own link port, so they can all run at once:
 
@@ -238,15 +238,15 @@ default each run makes a fresh `mktemp -d` and prints its path.
 
 | File | Concern |
 |---|---|
-| `kernel.nix` | default kernel, `KDIR`, per-series matrix |
-| `kernel-src.nix` | prepared kernel trees from kernel.org tarballs or a local checkout |
+| `kernel/config.nix` | default kernel, `KDIR`, per-series matrix |
+| `kernel/src.nix` | prepared kernel trees from kernel.org tarballs or a local checkout |
 | `patches/` | upstream-pending Homa fixes the flake applies (currently none) |
 | `packages.nix` | toolchain inventory (build deps, dev and analysis tools, python env) |
 | `env-vars.nix` | dev-shell environment fragment |
 | `module.nix` | `homa.ko` derivations (debug/release, per kernel) and `homa-build-matrix` |
 | `userspace.nix` | `util/` tools and the `test/` unit harness |
 | `cross.nix` | riscv64 and aarch64 cross builds (`pkgsCross`) and `homa-cross-matrix` |
-| `devshell.nix` + `shell-functions/` | the dev shell |
+| `dev/shell.nix` + `shell-functions/` | the dev shell |
 | `oci.nix` | user-space OCI image |
 | `microvms/` | per-kernel microVM guests, the in-guest smoke and pair tests, and the orchestrators |
 | `analysis/` | tiered static analysis (quick/standard/deep) |

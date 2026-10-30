@@ -1,4 +1,4 @@
-# nix/microvms/lib.nix
+# nix/microvms/host/smoke-test.nix
 #
 # The microVM orchestrator (xtcp2 pattern). Produces a writeShellApplication that boots a
 # guest built with autoTest=true, captures its serial console, and returns a verdict. The

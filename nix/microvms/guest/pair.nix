@@ -1,8 +1,8 @@
-# nix/microvms/pair.nix
+# nix/microvms/guest/pair.nix
 #
 # In-guest scripts for the two-VM pair test (PLAN-pairs.md). Two guests share a private L2
 # link (eth1, a QEMU socket netdev). Each runs one of these as a systemd oneshot, prints
-# phase markers on the serial console, then powers off. The host (lib-pair.nix) greps both
+# phase markers on the serial console, then powers off. The host (pair-test.nix) greps both
 # consoles.
 #
 #   server (node0): insmod -> demo_server1 + cp_node servers (Homa, TCP) -> open the "ready"

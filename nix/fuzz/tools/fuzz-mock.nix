@@ -3,7 +3,7 @@
 # Builds the KERNEL-MOCK libFuzzer harnesses (nix/fuzz/harness/mock/*.c). These feed fuzzer
 # bytes through Homa's real receive path (homa_softirq -> homa_dispatch_pkts -> homa_*_pkt)
 # on top of the unit-test mock layer (test/mock.c), compiled with clang + libFuzzer +
-# ASan/UBSan against the same merged KDIR the unit tests use (nix/unit-kdir).
+# ASan/UBSan against the same merged KDIR the unit tests use (nix/kernel/unit-kdir).
 #
 # The build logic lives in build-mock-fuzzers.sh so it can also be run by hand. This target
 # is a gate: it fails unless every harness builds and runs its seed corpus cleanly.

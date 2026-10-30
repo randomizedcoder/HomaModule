@@ -6,7 +6,7 @@
 # does, but with clang + libFuzzer + ASan/UBSan.
 #
 # Usage: build-mock-fuzzers.sh <src-dir> <kdir> <out-dir> [extra-cflags]
-#   <kdir>          a merged KDIR such as nix/unit-kdir produces
+#   <kdir>          a merged KDIR such as nix/kernel/unit-kdir produces
 #   [extra-cflags]  e.g. unitKdir.extraCFlags
 #
 # Writes <out-dir>/bin/<harness>, <out-dir>/status.txt and <out-dir>/build.log.

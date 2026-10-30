@@ -1,4 +1,4 @@
-# nix/userspace.nix
+# nix/build/userspace.nix
 #
 # User-space derivations:
 #   homa-utils        - the util/ benchmark/test binaries (release, mirrors util/Makefile -O3)
@@ -121,7 +121,7 @@ let
     buildPhase = ''
       runHook preBuild
       # unitKdir merges nixpkgs' split source/ + build/ trees and adapts the kernel
-      # config to the mock layer (see nix/unit-kdir/default.nix).
+      # config to the mock layer (see nix/kernel/unit-kdir/default.nix).
       make -C test \
         KDIR=${unitKdir} \
         CC="gcc ${unitKdir.extraCFlags}" \

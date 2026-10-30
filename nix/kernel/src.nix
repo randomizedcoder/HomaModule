@@ -1,4 +1,4 @@
-# nix/kernel-src.nix
+# nix/kernel/src.nix
 #
 # Kernel build trees prepared from SOURCE, for compile-testing homa.ko against kernels that
 # nixpkgs no longer ships (7.0-7.2 are EOL-removed) or has not released (a local checkout of
@@ -15,8 +15,7 @@
 #   local      HOMA_LINUX_SRC=/path/to/linux, only with --impure; e.g.
 #                HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-build-matrix
 #
-# Usage in flake.nix:
-#   kernelSrc = import ./nix/kernel-src.nix { inherit pkgs lib; };
+# In the scope (nix/scope.nix) as kernelSrc:
 #   kernelSrc.trees     # { "7_0" = <drv>; "7_1" = <drv>; "7_2" = <drv>; [ local = <drv>; ] }
 #   "${kernelSrc.trees."7_1"}/build"   # KDIR
 

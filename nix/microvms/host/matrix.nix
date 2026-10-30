@@ -1,4 +1,4 @@
-# nix/microvms/matrix.nix
+# nix/microvms/host/matrix.nix
 #
 # One command for every VM test (PLAN-pairs.md phase 3): runs each per-kernel single-VM
 # smoke test and each (server, client) pair test in parallel, then prints a summary table

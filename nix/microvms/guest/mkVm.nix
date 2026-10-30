@@ -1,4 +1,4 @@
-# nix/microvms/mkVm.nix
+# nix/microvms/guest/mkVm.nix
 #
 # Parameterised microVM guest (uds-rdma-proxy pattern). Builds a NixOS guest that imports the
 # microvm.nix module, boots the SAME kernelPackages the homa.ko was built against (co-pinning
@@ -7,13 +7,13 @@
 # (config.microvm.declaredRunner).
 #
 # autoTest=true runs the smoke test (smoke.nix) at boot as a systemd oneshot, with its output
-# on the serial console, then powers the VM off: lib.nix only has to capture and grep the
+# on the serial console, then powers the VM off: smoke-test.nix only has to capture and grep the
 # console (xtcp2 pattern). autoTest=false gives an interactive VM with root autologin.
 #
 # withSanitizers=true builds a KASAN/KMEMLEAK kernel for the debug VM (heavy: rebuilds the
 # kernel).
 #
-# kernelPackages selects the guest kernel (one VM per kernel.nix matrix entry, xtcp2-style).
+# kernelPackages selects the guest kernel (one VM per kernel/config.nix matrix entry, xtcp2-style).
 #
 # consolePorts = { serial; virtio; } makes the lifecycle guest (lifecycle.nix, pcp pattern):
 # ttyS0 on a TCP port and logged to ./serial.log from the first byte, and a virtio console

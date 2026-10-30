@@ -1,12 +1,9 @@
-# nix/devshell.nix
+# nix/dev/shell.nix
 #
 # The Homa development shell. Composes the toolchain from packages.nix, the environment
 # fragment from env-vars.nix, and the bash helper functions from shell-functions/*.nix.
 #
-# Usage in flake.nix:
-#   devShells.default = import ./nix/devshell.nix {
-#     inherit pkgs lib packagesModule envVars shellFunctions;
-#   };
+# In the scope (nix/scope.nix) as devShell; nix/parts/dev.nix makes it devShells.default.
 
 { pkgs
 , lib

@@ -1,7 +1,7 @@
-# nix/microvms/lib-pair.nix
+# nix/microvms/host/pair-test.nix
 #
 # Orchestrator for the two-VM pair test (PLAN-pairs.md, uds-rdma-proxy pattern, console
-# markers as in lib.nix). Both guests drive themselves (pair.nix) and power off when done,
+# markers as in smoke-test.nix). Both guests drive themselves (pair.nix) and power off when done,
 # so the host only has to:
 #   1. start node0 (server), whose QEMU binds its end of the link (UDP for "dgram", a TCP
 #      listen for "socket");

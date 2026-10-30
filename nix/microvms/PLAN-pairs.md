@@ -47,7 +47,7 @@ Two guests built by the existing `mkVm.nix`, each with a second NIC:
      RPCs complete and the log shows no `incomplete` warnings;
   4. the same with `--protocol tcp`, giving a baseline to print beside the Homa numbers;
   5. rmmod and a dmesg gate (`BUG|Oops|WARNING.*homa`).
-- Orchestrator (`lib-pair.nix`, xtcp2/uds-rdma-proxy style):
+- Orchestrator (`pair-test.nix`, xtcp2/uds-rdma-proxy style):
   1. start node0 and wait for READY;
   2. start node1 and wait for PASS or FAIL;
   3. power off node0, then apply the same dmesg gate to node0's console (catches oopses on the
@@ -59,14 +59,14 @@ Two guests built by the existing `mkVm.nix`, each with a second NIC:
 | # | Deliverable | New targets | Done when |
 |---|---|---|---|
 | 1 ✅ | Pair harness, same kernel | `homa-pair-test` (default kernel) | **Done:** echo + cp_node Homa/TCP pass on 7.3 ↔ 7.3, about 35 s cached; a client with a dead link fails at `PING`. The interactive pair (`homa-pair`) moves to phase 3 |
-| 2 ✅ | Cross-kernel pairs | `homa-pair-test-<A>-<B>` for supported kernels (6.12 ↔ 7.3 both ways) | **Done:** all four pairings pass; each has its own link port, and all four run in parallel in 50 s. `vmSeries` in `kernel.nix` limits VM targets to 6.12 and 7.3 |
+| 2 ✅ | Cross-kernel pairs | `homa-pair-test-<A>-<B>` for supported kernels (6.12 ↔ 7.3 both ways) | **Done:** all four pairings pass; each has its own link port, and all four run in parallel in 50 s. `vmSeries` in `kernel/config.nix` limits VM targets to 6.12 and 7.3 |
 | 3 ✅ | One command for everything | `homa-vm-matrix` (`matrix.nix`): every single-VM test plus every pair, run in parallel, printing a table (kernel(s), verdict, echo, GRO calls, cp_node rates) | **Done:** 6 tests in 46 s. Its first run found a use-after-free in `homa_route_free` (STATUS.md F8); guests now boot with `init_on_free=1` |
 | 4 ✅ | Lossy and slow links | `homa-pair-lifecycle[-<s>]` (`pair-lifecycle.nix`): the pair driven over both guests' consoles as timed lifecycle phases, with `tc netem` on eth1 of both nodes (`delay 1ms`, `loss 0.1%`, `1%`, `delay 1ms loss 1%`, `5%`). Every netem qdisc has `limit 100000`, so no tail drops | **Done:** echo, cp_node Homa and TCP complete under every phase on 6.12 and 7.3; each node's netem drop rate matches the configured loss; Homa recovers by RESEND with no `rpc_timeouts`. Found STATUS.md F10 (delay alone triggers resends) |
 | 5 ✅ | Homa qdisc on virtio | `homa-pair-lifecycle` phases 10–12: `homa-qdisc on` (`qdisc.nix`) on eth1 of both nodes, traffic, then `net.homa.link_mbps=1000` so the pacer must defer, traffic, then the default qdisc back | **Done:** reproduced round-4 candidate 5 in VMs. On `main` the qdisc takes the link speed as −1 and echo, Homa and TCP all stall (red). With fork #23 every phase passes and the pacer sends Homa packets (green). STATUS.md F11 |
-| 6 (stretch) | Boot 7.0–7.2 | full kernels built from the kernel-src.nix tarballs (`buildLinux`, about 30 min each, cached) | The VM matrix covers every 7.x series, not just compile-only |
+| 6 (stretch) | Boot 7.0–7.2 | full kernels built from the kernel/src.nix tarballs (`buildLinux`, about 30 min each, cached) | The VM matrix covers every 7.x series, not just compile-only |
 
 Housekeeping, done with phase 1:
-- Add a `vmSupported` list in `kernel.nix` (today 6.12 and 7.3), so VM and pair targets are
+- Add a `vmSupported` list in `kernel/config.nix` (today 6.12 and 7.3), so VM and pair targets are
   generated only for kernels where the module builds.
 - `homa-build-matrix` still reports all kernels, so the 6.1/6.6/6.18 failures stay visible
   there.
@@ -75,13 +75,13 @@ Housekeeping, done with phase 1:
 
 - `nix/microvms/constants.nix`: pair addresses, MACs, base port, server and client ready
   timeouts.
-- `nix/microvms/mkVm.nix`: optional `pair = { role, ip, port }` argument adding eth1 (qemu
+- `nix/microvms/guest/mkVm.nix`: optional `pair = { role, ip, port }` argument adding eth1 (qemu
   `extraArgs`), static IP and hosts; `test` selects which in-guest script runs (smoke, pair
   server, pair client).
-- `nix/microvms/pair.nix` (new): server and client in-guest scripts, shellcheck-clean, using
+- `nix/microvms/guest/pair.nix` (new): server and client in-guest scripts, shellcheck-clean, using
   the same phase-marker style as `smoke.nix`.
-- `nix/microvms/lib-pair.nix` (new): two-VM orchestrator.
-- `nix/microvms/matrix.nix` (new): parallel runner and summary table.
+- `nix/microvms/host/pair-test.nix` (new): two-VM orchestrator.
+- `nix/microvms/host/matrix.nix` (new): parallel runner and summary table.
 - `nix/microvms/default.nix`: wires up the new targets.
 - `nix/README.md`, `DESIGN.md`: a demo section.
 
