@@ -55,92 +55,31 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
     microvm = {
       url = "github:astro/microvm.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, microvm }:
-    # Homa is a Linux kernel module; restrict to Linux systems (nixpkgs unstable also no
-    # longer supports x86_64-darwin).
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-        lib = nixpkgs.lib;
-
-        # ── Foundation modules (config → attrsets/fragments) ───────────────────────────
-        kernelConfig = import ./nix/kernel.nix { inherit pkgs lib; };
-        packagesModule = import ./nix/packages.nix {
-          inherit pkgs lib;
-          kernelPackages = kernelConfig.kernelPackages;
-        };
-        pythonEnv = packagesModule.pythonEnv;
-        envVars = import ./nix/env-vars.nix { inherit pkgs lib kernelConfig pythonEnv; };
-        shellFunctions = import ./nix/shell-functions { inherit pkgs lib; };
-
-        # Homa source with any forward-port patches in nix/patches/ applied (currently none).
-        # Every derivation builds this, not `self` directly.
-        homaSrc = import ./nix/patches { inherit pkgs; src = self; };
-        # Kernel trees prepared from kernel.org tarballs (7.0-7.2) or a local checkout.
-        kernelSrc = import ./nix/kernel-src.nix { inherit pkgs lib; };
-
-        # ── Derivation modules ─────────────────────────────────────────────────────────
-        modulePkgs = import ./nix/module.nix {
-          inherit pkgs lib kernelConfig kernelSrc;
-          src = homaSrc;
-        };
-        # Cross-compile checks for riscv64 and aarch64 (x86_64 hosts only).
-        crossPkgs = import ./nix/cross.nix {
-          inherit pkgs lib kernelConfig kernelSrc;
-          src = homaSrc;
-          buildAgainstTree = modulePkgs.buildAgainstTree;
-        };
-        userspacePkgs = import ./nix/userspace.nix {
-          inherit pkgs lib kernelConfig;
-          src = homaSrc;
-        };
-        ociPkgs = import ./nix/oci.nix {
-          inherit pkgs lib pythonEnv;
-          homa-utils = userspacePkgs.homa-utils;
-          homa-utils-debug = userspacePkgs.homa-utils-debug;
-        };
-        analysisPkgs = import ./nix/analysis {
-          inherit pkgs lib kernelConfig;
-          src = homaSrc;
-        };
-        fuzzPkgs = import ./nix/fuzz {
-          inherit pkgs lib kernelConfig;
-          src = homaSrc;
-        };
-        microvmPkgs = import ./nix/microvms {
-          inherit pkgs lib microvm nixpkgs kernelConfig;
-          buildSystem = system;
-          buildModule = modulePkgs.buildModule;
-          homaUtils = userspacePkgs.homa-utils;
-        };
-      in
-      {
-        devShells.default = import ./nix/devshell.nix {
-          inherit pkgs lib packagesModule envVars shellFunctions;
-        };
-
-        packages =
-          modulePkgs.packages
-          // userspacePkgs.packages
-          // ociPkgs.packages
-          // analysisPkgs.packages
-          // fuzzPkgs.packages
-          // microvmPkgs.packages
-          // lib.optionalAttrs (system == "x86_64-linux") crossPkgs.packages
-          // { default = modulePkgs.homa-module; };
-
-        checks =
-          analysisPkgs.checks or { }
-          // fuzzPkgs.checks or { }
-          // microvmPkgs.checks;
-
-        formatter = pkgs.nixpkgs-fmt;
-      });
+  # flake-parts merges the modules in nix/parts/, one per area, each adding its packages
+  # and checks for every system (nix/parts/README.md). nix/scope.nix builds the
+  # derivations themselves.
+  outputs = inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      # Homa is a Linux kernel module; restrict to Linux systems (nixpkgs unstable also no
+      # longer supports x86_64-darwin).
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      imports = [
+        ./nix/parts/scope.nix
+        ./nix/parts/build.nix
+        ./nix/parts/analysis.nix
+        ./nix/parts/fuzz.nix
+        ./nix/parts/vms.nix
+        ./nix/parts/dev.nix
+      ];
+    };
 }
