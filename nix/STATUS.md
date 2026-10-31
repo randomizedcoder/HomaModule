@@ -522,9 +522,9 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
 | 14 | Does `util/` need to build off x86? (F9) If so, a portable `rdtsc()` and `REG_RIP` guard | riscv64/aarch64 `util/` builds fail | small | ask John |
 | 15 | riscv `homa_clock_khz()`: `riscv_timebase / 1000` (F9) | Timers 100× off on riscv in the normal build | small | us → upstream (if John wants riscv) |
-| 19 | F13: walk the route table outside `peertab->lock`, drafted (fork #27) | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
-| 18 | F12: `strip.py` `#else` toggle (upstream #134, not ours) and `mem_cgroup_from_sk()`, drafted (fork #26) | The net-next files must build in-tree before any submission | small | us → upstream |
-| 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left`, drafted (fork #28) | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
+| 19 | F13: walk the route table outside `peertab->lock`, sent (upstream #147) | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
+| 18 | F12: `strip.py` `#else` toggle (upstream #134, not ours) and `mem_cgroup_from_sk()`, sent (upstream #146) | The net-next files must build in-tree before any submission | small | us → upstream |
+| 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left`, sent (upstream #148) | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
