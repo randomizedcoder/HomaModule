@@ -17,6 +17,8 @@
   # kernel/config.nix (default and matrix), not here.
   bootTimeout = 300;
   bootTimeoutDebug = 1200; # KASAN guests boot slowly
+  # The pair lifecycle on a sanitizer kernel: each phase's timeout, times this.
+  sanitizerSlowdown = 4;
 
   # A kernel oops, warning or sanitizer report in dmesg: every dmesg check uses this, in the
   # guests (smoke.nix, pair.nix) and on the host (tcl/parse.tcl, whose copy the tcl-tests

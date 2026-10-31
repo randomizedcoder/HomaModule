@@ -765,7 +765,9 @@ oo::class create ::homa::lc::Node {
     #	Connects to hvc0 and probes until the autologin shell answers. The
     #	probe also makes it a plain shell: no echo, no (coloured) prompt, no
     #	pager. Probes sent before the shell started are answered late, and
-    #	the console's numbered markers skip those answers.
+    #	the console's numbered markers skip those answers. It then waits
+    #	for the boot and udev to finish: a slow (sanitizer) guest answers on hvc0
+    #	minutes before udev hands eth1 to networkd for its address.
     #
     # Arguments:
     #	id	the phase's number.
@@ -788,8 +790,9 @@ oo::class create ::homa::lc::Node {
                 }
             }
             if {$shell} {
-                set out [dict get [my run uptime.log [dict get $timeouts command] \
-                    {echo $(uname -r) $(cut -d' ' -f1 /proc/uptime)}] out]
+                set out [dict get [my run uptime.log [dict get $timeouts virtio] \
+                    {systemctl is-system-running --wait > /dev/null; udevadm settle --timeout=900;\
+                    echo $(uname -r) $(cut -d' ' -f1 /proc/uptime)}] out]
                 lassign [parse lastLine $out] kernel uptime
                 set up "kernel $kernel, guest uptime $uptime s"
             }
