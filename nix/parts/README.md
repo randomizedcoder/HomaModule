@@ -9,6 +9,7 @@ outputs are what `nix build .#<name>`, `nix run`, `nix develop` and `nix flake c
 | `scope.nix` | none: builds the package scope ([`../scope.nix`](../scope.nix)) and passes it to the others as `homa` |
 | `build.nix` | `homa-module*`, `homa-build-matrix`, `homa-utils*`, `homa-tests`, `homa-image*`, cross builds (x86_64 hosts only); `default` is `homa-module` |
 | `analysis.nix` | `analysis-*`; check `analysis-quick` |
+| `fuzz.nix` | `fuzz*`; check `fuzz-selftest` |
 | `dev.nix` | `devShells.default` (`nix develop`) and `formatter` (`nix fmt`) |
 
 ## How a part works
