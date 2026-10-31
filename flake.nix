@@ -17,6 +17,16 @@
 #   nix build .#homa-utils-debug           # user-space tools with AddressSanitizer
 #   nix build .#homa-tests                 # build + run the unit tests (ASan)
 #
+#   nix run   .#homa-microvm-test          # boot a microVM, insmod homa.ko, loopback echo RPCs
+#   nix run   .#homa-microvm-test-6_12     # ... per VM kernel: 6_12 7_3 (kernel/config.nix vmSeries)
+#   nix run   .#homa-microvm-test-debug    # ... under a KASAN/KMEMLEAK kernel
+#   nix run   .#homa-lifecycle[-6_12]      # timed phases driven over ttyS0 + a virtio console
+#   nix run   .#homa-pair-test             # two VMs: echo + cp_node (Homa, TCP) over a link
+#   nix run   .#homa-pair-test-6_12-7_3    # ... server kernel, client kernel (every pairing)
+#   nix run   .#homa-pair-lifecycle[-6_12] # the pair over its consoles: netem loss, Homa qdisc
+#   nix run   .#homa-pair-exp              # latency sweep (sysctls x workloads, metric deltas)
+#   nix run   .#homa-vm-matrix             # every VM test + pair in parallel, summary table
+#
 #   nix build .#homa-image                 # OCI userspace image  (docker load < result)
 #   nix build .#homa-image-debug
 #
@@ -65,6 +75,7 @@
         ./nix/parts/build.nix
         ./nix/parts/analysis.nix
         ./nix/parts/fuzz.nix
+        ./nix/parts/vms.nix
         ./nix/parts/dev.nix
       ];
     };

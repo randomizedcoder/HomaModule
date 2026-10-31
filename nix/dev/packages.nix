@@ -35,8 +35,18 @@ let
   pyTools = [ pkgs.ruff pkgs.mypy pythonEnv ];
   shTools = [ pkgs.shellcheck pkgs.shfmt ];
   docTools = [ pkgs.groff pkgs.ghostscript ]; # man/ PDF generation
+
+  # The VM test drivers (nix/microvms/tcl): Tcl 8.6 with Expect and tcllib, and the two
+  # linters. Tcl's setup hook puts expect's and tcllib's lib on TCLLIBPATH.
+  tclTools = [
+    pkgs.tcl
+    pkgs.expect
+    pkgs.tclPackages.tcllib
+    pkgs.nagelfar
+    pkgs.tclint
+  ];
 in
 {
   inherit pythonEnv;
-  allPackages = buildTools ++ cTools ++ pyTools ++ shTools ++ docTools;
+  allPackages = buildTools ++ cTools ++ pyTools ++ shTools ++ docTools ++ tclTools;
 }

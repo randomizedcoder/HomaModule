@@ -1,0 +1,168 @@
+# report.test --
+#
+#	Table-driven tests for homa::lc::report, which formats phase results,
+#	counter deltas and homa-vm-matrix's rows. Every row is {description
+#	category input outcome expected}; see testTable in helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc::report
+namespace import ::homa::lc::report
+
+set cpLine {1 clients: 0.40 Kops/sec, 0.33 Gbps, RTT (us) P50 148.99 P99 26162.00 P99.9 30000.00}
+
+# ---- Phase results ---------------------------------------------------------
+
+testTable verdict {
+    {"rc 0 passes" positive 0 ok PASS}
+    {"skip is a SKIP" positive skip ok SKIP}
+    {"rc 1 fails" negative 1 ok FAIL}
+    {"a console timeout (124) fails" boundary 124 ok FAIL}
+    {"a closed console (125) fails" boundary 125 ok FAIL}
+    {"anything else is rejected" negative maybe error {bad rc "maybe"}}
+    {"a negative rc fails" corner -1 ok FAIL}
+    {"an empty rc is rejected" boundary {} error {bad rc ""}}
+} {report verdict $input}
+
+testTable combine {
+    {"two successes" positive {0 0} ok 0}
+    {"a failure after a success" positive {0 1} ok 1}
+    {"a success does not clear a failure" positive {1 0} ok 1}
+    {"the later failure wins" corner {1 124} ok 124}
+    {"a closed console after a failure" corner {2 125} ok 125}
+    {"a negative rc is a failure" corner {0 -1} ok -1}
+    {"a non-numeric rc is an error" negative {0 x} error {bad rc "x"}}
+    {"a non-numeric earlier rc is an error" negative {skip 0} error {bad rc "skip"}}
+} {report combine {*}$input}
+
+testTable phaseLine {
+    {"with a detail" positive {3 smoke PASS 120 HOMA_SMOKE_PASS} ok
+        {  phase 3 smoke: PASS (120 ms): HOMA_SMOKE_PASS}}
+    {"without a detail" boundary {13 {stop servers} PASS 1171 {}} ok
+        {  phase 13 stop servers: PASS (1171 ms)}}
+    {"a sub-phase number" corner {8.5 {traffic loss5} FAIL 13706 {failed: tcp}} ok
+        {  phase 8.5 traffic loss5: FAIL (13706 ms): failed: tcp}}
+} {report phaseLine {*}$input}
+
+testTable tableRow {
+    {"with a detail" positive {3 smoke PASS 120 HOMA_SMOKE_PASS} ok
+        {| 3 | smoke | PASS | 120 | HOMA_SMOKE_PASS |}}
+    {"an empty detail keeps the column" boundary {13 {stop servers} PASS 1171 {}} ok
+        {| 13 | stop servers | PASS | 1171 |  |}}
+    {"a pipe in the detail is escaped" corner {5 link PASS 9 {a | b}} ok
+        {| 5 | link | PASS | 9 | a \| b |}}
+} {report tableRow {*}$input}
+
+# ---- Counters ----------------------------------------------------------------
+
+testTable deltaLine {
+    {"name=value pairs" positive {a 3 b -2} ok {a=3 b=-2}}
+    {"no deltas" boundary {} ok {}}
+} {report deltaLine $input}
+
+# ---- Traffic runs --------------------------------------------------------------
+
+set tcpLine {1 clients: 0.39 Kops/sec, RTT (us) P50 410.63 P99 27362.55}
+set lossChecks {
+    node0 {ok 1 report {node0 10/200 (5.00%)}}
+    node1 {ok 1 report {node1 9/180 (5.00%)}}
+}
+set tail0 {RESENDs 0, resent 0, rpc_timeouts 0, tcp_retrans 0}
+set rates {echo 6/6; Homa 0.40 Kops P50 148.99 P99 26162.00 us; TCP 0.39 Kops P99 27362.55 us}
+
+# The input is {measured want must}: measured is a dictionary of echoes,
+# homa and tcp (cp_node's lines), deltas (node -> counters) and checks
+# (node -> netemCheck's result, or empty without netem). The result is
+# {failed detail}.
+testTable trafficDetail [subst {
+    {"a clean baseline" positive
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine} deltas {node0 {} node1 {}} checks {}} 6 {}}
+        ok {failed {} detail {$rates; $tail0}}}
+    {"loss, with RESENDs summed over both nodes" positive
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine}
+            deltas {node0 {packets_sent_RESEND 5} node1 {packets_sent_RESEND 7 resent_packets 3}}
+            checks {$lossChecks}} 6 packets_sent_RESEND}
+        ok {failed {} detail {$rates; netem drops node0 10/200 (5.00%) node1 9/180 (5.00%);\
+            RESENDs 12, resent 3, rpc_timeouts 0, tcp_retrans 0; packets_sent_RESEND 12}}}
+    {"loss without RESENDs fails" negative
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine} deltas {node0 {} node1 {}}
+            checks {$lossChecks}} 6 packets_sent_RESEND}
+        ok {failed no-packets_sent_RESEND detail {$rates; netem drops node0 10/200 (5.00%)\
+            node1 9/180 (5.00%); $tail0; packets_sent_RESEND 0; failed: no-packets_sent_RESEND}}}
+    {"everything missing" boundary
+        {{echoes {} homa {} tcp {} deltas {} checks {}} 6 {}}
+        ok {failed {echo homa tcp} detail {echo /6; Homa - Kops P50 - P99 - us;\
+            TCP - Kops P99 - us; $tail0; failed: echo homa tcp}}}
+    {"a drop check failed on one node" corner
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine} deltas {node1 {packets_sent_RESEND 1}}
+            checks {node0 {ok 1 report {node0 1/100 (1.00%)}}
+                node1 {ok 0 report {node1 60/100 (60.00%)}}}} 6 packets_sent_RESEND}
+        ok {failed drops-node1 detail {$rates; netem drops node0 1/100 (1.00%)\
+            node1 60/100 (60.00%); RESENDs 1, resent 0, rpc_timeouts 0, tcp_retrans 0;\
+            packets_sent_RESEND 1; failed: drops-node1}}}
+    {"the qdisc counter that must move, on one node only" corner
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine} deltas {node0 {qdisc_tcp_packets 40}}
+            checks {}} 6 qdisc_tcp_packets}
+        ok {failed {} detail {$rates; $tail0; qdisc_tcp_packets 40}}}
+    {"a counter that went down does not count as moved" corner
+        {{echoes 6 homa {$cpLine} tcp {$tcpLine} deltas {node0 {pacer_homa_packets -2}}
+            checks {}} 6 pacer_homa_packets}
+        ok {failed no-pacer_homa_packets detail {$rates; $tail0; pacer_homa_packets -2;\
+            failed: no-pacer_homa_packets}}}
+    {"a bad echo count is an error" negative
+        {{echoes 6 homa {} tcp {} deltas {} checks {}} x {}} error {bad echo count "x"}}
+}] {report trafficDetail {*}$input}
+
+# ---- homa-vm-matrix -----------------------------------------------------------------
+
+set pairOut "pair lifecycle: logs in /tmp/x
+HOMA_PAIR_ECHO responses=6 (want 6)
+HOMA_PAIR_CPNODE_homa $cpLine
+HOMA_PAIR_CPNODE_tcp 1 clients: 0.39 Kops/sec, RTT (us) P50 410.63 P99 27362.55
+VERDICT: PASS"
+set smokeOut "HOMA_SMOKE_ECHO responses=6 (want 6)
+HOMA_SMOKE_GRO homa_gro_receive calls=1722
+VERDICT: PASS"
+
+# The input is {name kernels secs want out}.
+testTable matrixRow [subst {
+    {"a pair test" positive {homa-pair-test-7_3-7_3 {7_3 → 7_3} 65 6 {$pairOut}} ok
+        {verdict PASS row {| homa-pair-test-7_3-7_3 | 7_3 → 7_3 | PASS | 65 | 6/6 | — |\
+            0.40 | 148.99 / 26162.00 | 0.39 | 410.63 / 27362.55 |}}}
+    {"a single-VM test has no cp_node" positive
+        {homa-microvm-test-7_3 7_3 51 6 {$smokeOut}} ok
+        {verdict PASS row {| homa-microvm-test-7_3 | 7_3 | PASS | 51 | 6/6 | 1722 |\
+            — | — / — | — | — / — |}}}
+    {"a failed run" negative {t 7_3 9 6 "VERDICT: FAIL (3 phases)"} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 9 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"a run with no output" boundary {t 7_3 0 6 {}} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 0 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"VERDICT: PASS must start a line" corner {t 7_3 1 6 "x VERDICT: PASS"} ok
+        {verdict FAIL row {| t | 7_3 | FAIL | 1 | 0/6 | — | — | — / — | — | — / — |}}}
+    {"the cell shows the wanted count" positive
+        {t 7_3 2 3 "HOMA_SMOKE_ECHO responses=3 (want 3)\nVERDICT: PASS"} ok
+        {verdict PASS row {| t | 7_3 | PASS | 2 | 3/3 | — | — | — / — | — | — / — |}}}
+    {"a missing count shows 0 of the wanted count" negative
+        {t 7_3 2 3 "VERDICT: PASS"} ok
+        {verdict PASS row {| t | 7_3 | PASS | 2 | 0/3 | — | — | — / — | — | — / — |}}}
+}] {report matrixRow {*}$input}
+
+# ---- homa-vm-compare ------------------------------------------------------------------
+
+# The input is {old new}, two lists of lines.
+testTable diff {
+    {"the same lines" positive {{a b c} {a b c}} ok {}}
+    {"a changed verdict" negative
+        {{{phase 3 smoke: PASS} b} {{phase 3 smoke: FAIL} b}} ok
+        {{- phase 3 smoke: PASS} {+ phase 3 smoke: FAIL}}}
+    {"a line added in the middle" positive {{a b} {a c b}} ok {{+ c}}}
+    {"a line removed" positive {{a b c} {a c}} ok {{- b}}}
+    {"both empty" boundary {{} {}} ok {}}
+    {"nothing before" boundary {{} {a b}} ok {{+ a} {+ b}}}
+    {"nothing after" boundary {{a} {}} ok {{- a}}}
+    {"a repeated line, once fewer" corner {{a a b} {a b}} ok {{- a}}}
+    {"two lines swapped" corner {{a b} {b a}} ok {{- a} {+ a}}}
+    {"lines with spaces are compared whole" corner
+        {{{phase 1 a: PASS}} {{phase 1 a: PASS}}} ok {}}
+} {report diff {*}$input}
+
+tcltest::cleanupTests

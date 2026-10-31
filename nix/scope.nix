@@ -42,5 +42,10 @@ pkgs.lib.makeScope pkgs.newScope (self: {
   };
   analysisPkgs = self.callPackage ./analysis { };
   fuzzPkgs = self.callPackage ./fuzz { };
+  microvmPkgs = self.callPackage ./microvms {
+    inherit (inputs) microvm nixpkgs;
+    inherit (self.modulePkgs) buildModule;
+    homaUtils = self.userspacePkgs.homa-utils;
+  };
   devShell = self.callPackage ./dev/shell.nix { };
 })

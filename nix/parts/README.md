@@ -10,6 +10,7 @@ outputs are what `nix build .#<name>`, `nix run`, `nix develop` and `nix flake c
 | `build.nix` | `homa-module*`, `homa-build-matrix`, `homa-utils*`, `homa-tests`, `homa-image*`, cross builds (x86_64 hosts only); `default` is `homa-module` |
 | `analysis.nix` | `analysis-*`; check `analysis-quick` |
 | `fuzz.nix` | `fuzz*`; check `fuzz-selftest` |
+| `vms.nix` | `homa-microvm*`, `homa-*-test*`, `homa-*lifecycle*`, `homa-pair-*`, `homa-vm-matrix`; check `tcl-tests` |
 | `dev.nix` | `devShells.default` (`nix develop`) and `formatter` (`nix fmt`) |
 
 ## How a part works

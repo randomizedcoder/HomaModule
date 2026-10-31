@@ -30,6 +30,11 @@ pkgs.mkShell {
       homa-checkpatch     run kernel checkpatch (needs a Linux source tree)
       homa-lint           the analysis-quick tier: ruff, shellcheck, clang-format
 
+    The VM test drivers (nix/microvms/tcl): tclsh with Expect and tcllib, nagelfar, tclint.
+      nix run .#homa-tcl-test -- -file wait.test    their tests, or some of them
+      nix run .#homa-tcl-lint                       their lint
+      nix run .#homa-vm-compare -- old new          two matrix runs' logs, phase by phase
+
     EOF
   '';
 }
