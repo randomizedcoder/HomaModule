@@ -323,13 +323,14 @@ def scan(file: str) -> list[str]:
                 delete_empty_line = True
             continue
 
-        # Strip '#ifdef __UNIT_TEST__' blocks (keep #else clauses)
+        # Strip '#ifdef __UNIT_TEST__' blocks and the '#else' clauses of
+        # '#ifndef __UNIT_TEST__' blocks.
         if in_unit:
             if line.startswith('#endif /* __UNIT_TEST__ */'):
                 in_unit = None
                 continue
             if line.startswith('#else /* __UNIT_TEST__ */'):
-                in_unit = 'else'
+                in_unit = 'if' if in_unit == 'else' else 'else'
                 continue
             if in_unit == 'if':
                 continue
