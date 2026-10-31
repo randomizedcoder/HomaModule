@@ -372,9 +372,10 @@ proc ::homa::lc::parse::netemSent {text} {
 #	With no loss configured there must be no drops. Otherwise the rate may
 #	be up to twice the loss plus half a point (it reads a little low, since
 #	tc counts sent packets per GSO segment but drops per skb), and, once
-#	there are 10000 packets, must be at least half the loss, so netem is
-#	really on. Tail drops would push the rate up; netem's limit prevents
-#	them.
+#	there are 10000 packets, must be at least a quarter of the loss, so
+#	netem is really on (a slow kernel batches more segments per skb: 0.1 %
+#	has read as 0.04 %). Tail drops would push the rate up; netem's limit
+#	prevents them.
 #
 # Arguments:
 #	packets	packets netem sent.
@@ -402,7 +403,7 @@ proc ::homa::lc::parse::dropRate {packets drops loss} {
         set pass [expr {$drops == 0}]
     } else {
         set pass [expr {$pct <= 2 * $loss + 0.5
-                && ($total < 10000 || $pct >= $loss / 2.0)}]
+                && ($total < 10000 || $pct >= $loss / 4.0)}]
     }
     return [dict create rate [format %.2f $pct] ok $pass]
 }
