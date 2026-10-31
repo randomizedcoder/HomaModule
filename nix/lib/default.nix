@@ -44,6 +44,15 @@ let
     name = "homa-src-${name}";
     src = lib.fileset.toSource { inherit root fileset; };
     patches = map (patchFor dirs) patches;
+    # A patch with nothing inside this subset (a util/-only fix in the module's source) has
+    # no hunks left after filterdiff, only its mail header, and patch rejects it: drop it.
+    prePatch = ''
+      kept=""
+      for p in $patches; do
+        if grep -q '^@@ ' "$p"; then kept="$kept $p"; fi
+      done
+      patches=$kept
+    '';
   };
   # A directory without its Markdown files: no build reads them.
   dirNoDocs = d: lib.fileset.difference (root + "/${d}")
