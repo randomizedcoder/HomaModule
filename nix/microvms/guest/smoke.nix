@@ -5,18 +5,25 @@
 # and the run ends with exactly one of HOMA_SMOKE_PASS or HOMA_SMOKE_FAIL:<phase>; the host
 # (smoke-test.nix) greps the captured console log for them.
 #
-#   insmod -> lsmod -> loopback echo RPCs (demo_server1 <- demo_client1, 100 B .. 1 MB:
+#   insmod -> lsmod -> (KCSAN kernel: KCSAN is on, watching Homa) -> loopback echo RPCs (demo_server1 <- demo_client1, 100 B .. 1 MB:
 #   exercises sendmsg and the recvmsg path) -> the same echo across two netns over veth with
 #   GRO and the RPS flow table on (exercises homa_gro_complete -> homa_set_softirq_cpu) ->
-#   (sanitizers: kmemleak scan + KASAN gate) -> rmmod
+#   (sanitizer kernels: kmemleak scan + KASAN/KCSAN/UBSAN gate) -> rmmod
 
 { pkgs
 , oopsRegex # constants.oopsRegex
 , echoRpcs # constants.echoRpcs
 , homaKoPath
 , homaUtils
-, withSanitizers ? false
+, sanitizer ? null # null | "kasan" | "kcsan" (debug-kernels.nix)
+, sanitizerSlowdown # constants.sanitizerSlowdown
 }:
+
+let
+  inherit (pkgs) lib;
+  # Seconds an echo client may take; sanitizer kernels are several times slower.
+  clientTimeout = 30 * (if sanitizer != null then sanitizerSlowdown else 1);
+in
 
 pkgs.writeShellApplication {
   name = "homa-smoke";
@@ -30,6 +37,7 @@ pkgs.writeShellApplication {
     ok() { echo "HOMA_SMOKE_$1_OK"; }
 
     echo "HOMA_SMOKE_START kernel=$(uname -r)"
+    client_timeout=${toString clientTimeout}
 
     insmod ${homaKoPath} || fail INSMOD
     ok INSMOD
@@ -37,10 +45,24 @@ pkgs.writeShellApplication {
     grep -q '^homa ' /proc/modules || fail LSMOD
     ok LSMOD
 
+    ${lib.optionalString (sanitizer == "kcsan") ''
+      # kcsan.nix's udev rule turns KCSAN on once homa.ko is loaded, watching only Homa's
+      # functions (debugfs lists them, one per line, after "whitelisted functions:").
+      kcsan=/sys/kernel/debug/kcsan
+      for _ in $(seq 40); do
+        grep -q '^enabled: 1' "$kcsan" && break
+        sleep 0.5
+      done
+      watched=$(grep -c '^ [a-z_]' "$kcsan" || true)
+      echo "HOMA_SMOKE_KCSAN watching=$watched functions"
+      grep -q '^enabled: 1' "$kcsan" || fail KCSAN
+      [ "$watched" -gt 0 ] || fail KCSAN
+      ok KCSAN
+    ''}
     demo_server1 > /tmp/demo_server1.log 2>&1 &
     server=$!
     sleep 1
-    responses=$(timeout 30 demo_client1 127.0.0.1 4000 | grep -c '^Received response' || true)
+    responses=$(timeout "$client_timeout" demo_client1 127.0.0.1 4000 | grep -c '^Received response' || true)
     kill "$server" 2>/dev/null || true
     wait "$server" 2>/dev/null || true
     echo "HOMA_SMOKE_ECHO responses=$responses (want ${toString echoRpcs})"
@@ -77,7 +99,7 @@ pkgs.writeShellApplication {
     ip netns exec homa-srv demo_server1 > /tmp/demo_server1_gro.log 2>&1 &
     server=$!
     sleep 1
-    responses=$(timeout 30 ip netns exec homa-cli demo_client1 10.77.0.1 4000 \
+    responses=$(timeout "$client_timeout" ip netns exec homa-cli demo_client1 10.77.0.1 4000 \
       | grep -c '^Received response' || true)
     kill "$server" 2>/dev/null || true
     wait "$server" 2>/dev/null || true
@@ -98,10 +120,12 @@ pkgs.writeShellApplication {
     [ "''${hits:-0}" -gt 0 ] || fail GRO_RPS
     ok GRO
 
-    ${pkgs.lib.optionalString withSanitizers ''
+    ${lib.optionalString (sanitizer != null) ''
       echo scan > /sys/kernel/debug/kmemleak 2>/dev/null || true
       sleep 5
-      if dmesg | grep -qE 'BUG: KASAN|UBSAN:|unreferenced object'; then
+      # Any report so far, before rmmod: KASAN, KCSAN, UBSAN, lockdep ("WARNING: ... lock
+      # ..."), or a leak the kmemleak scan found.
+      if dmesg | grep -qE '${oopsRegex}|unreferenced object'; then
         fail SANITIZER
       fi
       ok SANITIZER

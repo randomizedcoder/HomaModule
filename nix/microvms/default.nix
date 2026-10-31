@@ -8,8 +8,11 @@
 #   homa-lifecycle[-<series>]      host-driven phases over ttyS0 + a virtio console, each
 #                                  timed: boot, smoke, module cycles, dmesg, poweroff, exit
 #                                  (lifecycle.nix, pcp pattern)
-#   homa-microvm-debug             default kernel with KASAN/KMEMLEAK
-#   homa-microvm-test-debug        ... the same test under sanitizers
+#   homa-microvm-debug             default kernel with KASAN, KMEMLEAK, lockdep, UBSAN, ...
+#   homa-microvm-test-debug        ... the smoke test on it
+#   homa-pair-lifecycle-debug      ... the pair lifecycle (netem, qdisc) on it
+#   homa-microvm[-test]-kcsan,     the same with KCSAN (data races in Homa's functions)
+#     homa-pair-lifecycle-kcsan
 #   homa-pair-test[-<s>-<c>]       two VMs (pair-test.nix): Homa between server <s>, client <c>
 #   homa-pair-lifecycle[-<series>] the pair driven over both consoles, with timed phases and
 #                                  tc netem loss/delay phases (pair-lifecycle.nix)
@@ -55,8 +58,13 @@ let
   pairList = lib.concatMap (s: map (c: { server = s; client = c; }) vmSeries) vmSeries;
   pairName = p: "${p.server}-${p.client}";
 
+  # The sanitizer VMs (guest/debug-kernels.nix), on the default kernel: name -> sanitizer.
+  # Each gets homa-microvm-<name>, homa-microvm-test-<name> and homa-pair-lifecycle-<name>.
+  debugVms = { debug = "kasan"; kcsan = "kcsan"; };
+  debugNames = lib.attrNames debugVms;
+
   ports = import ./ports.nix {
-    inherit lib constants vmSeries;
+    inherit lib constants vmSeries debugNames;
     linkNames =
       [
         { name = "pair-test"; link = "dgram"; }
@@ -64,12 +72,13 @@ let
         { name = "pair-test-exp-socket"; link = "socket"; }
       ]
       ++ map (n: { name = "pair-lifecycle-${n}"; link = "dgram"; }) ([ "default" ] ++ vmSeries)
-      ++ map (p: { name = "pair-test-${pairName p}"; link = "dgram"; }) pairList;
+      ++ map (p: { name = "pair-test-${pairName p}"; link = "dgram"; }) pairList
+      ++ map (n: { name = "pair-lifecycle-${n}"; link = "dgram"; }) debugNames;
   };
 
   mkGuest =
     { kernelPackages
-    , withSanitizers ? false
+    , sanitizer ? null
     , autoTest ? false
     , pairNode ? null
     , pairPort ? null
@@ -78,13 +87,14 @@ let
     , consolePorts ? null
     }: import ./guest/mkVm.nix {
       inherit pkgs lib microvm nixpkgs buildSystem constants buildModule homaUtils
-        kernelPackages withSanitizers autoTest pairNode pairPort pairExperiments pairLink
+        kernelPackages sanitizer autoTest pairNode pairPort pairExperiments pairLink
         consolePorts;
     };
 
-  mkTest = { kernelPackages, label, withSanitizers ? false }: import ./host/smoke-test.nix {
-    inherit pkgs constants label withSanitizers;
-    runner = mkGuest { inherit kernelPackages withSanitizers; autoTest = true; };
+  mkTest = { kernelPackages, label, sanitizer ? null }: import ./host/smoke-test.nix {
+    inherit pkgs constants label;
+    withSanitizers = sanitizer != null;
+    runner = mkGuest { inherit kernelPackages sanitizer; autoTest = true; };
   };
 
   # Lifecycle test of the kernel called name ("default" or a series).
@@ -97,12 +107,14 @@ let
     };
 
   # Pair lifecycle (PLAN-pairs.md phase 4): both nodes on one kernel, driven over their
-  # consoles, with netem phases.
-  mkPairLifecycle = name: kernelPackages:
+  # consoles, with netem phases. With a sanitizer, both run that debug kernel, and every
+  # phase gets constants.sanitizerSlowdown times as long.
+  mkPairLifecycle = name: kernelPackages: mkPairLifecycleWith { inherit name kernelPackages; };
+  mkPairLifecycleWith = { name, kernelPackages, sanitizer ? null }:
     let
       consoles = ports.pairConsoles name;
       node = pairNode: mkGuest {
-        inherit kernelPackages pairNode;
+        inherit kernelPackages pairNode sanitizer;
         pairPort = ports.link "pair-lifecycle-${name}";
         consolePorts = consoles.${if pairNode == "server" then "node0" else "node1"};
       };
@@ -110,6 +122,7 @@ let
     import ./host/pair-lifecycle.nix {
       inherit lib constants tclApps metrics;
       label = labelOf name;
+      slowdown = if sanitizer != null then constants.sanitizerSlowdown else 1;
       ports = consoles;
       serverRunner = node "server";
       clientRunner = node "client";
@@ -194,13 +207,20 @@ let
   };
 in
 {
-  packages = {
-    homa-microvm-debug = mkGuest { kernelPackages = defaultKp; withSanitizers = true; };
-    homa-microvm-test-debug = mkTest {
-      kernelPackages = defaultKp;
-      label = "-debug";
-      withSanitizers = true;
-    };
+  packages = lib.concatMapAttrs
+    (name: sanitizer: {
+      "homa-microvm-${name}" = mkGuest { kernelPackages = defaultKp; inherit sanitizer; };
+      "homa-microvm-test-${name}" = mkTest {
+        kernelPackages = defaultKp;
+        label = "-${name}";
+        inherit sanitizer;
+      };
+      "homa-pair-lifecycle-${name}" = mkPairLifecycleWith {
+        inherit name sanitizer;
+        kernelPackages = defaultKp;
+      };
+    })
+    debugVms // {
     homa-pair-test = mkPairTest {
       serverKp = defaultKp;
       clientKp = defaultKp;
