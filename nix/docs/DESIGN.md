@@ -165,12 +165,19 @@ For a kernel module, a container is the wrong unit — you need a real kernel. T
 - `smoke-test.nix` on the host only boots the runner under `timeout`, captures the console, and
   greps the sentinels. There is no expect script, no TCP serial port and no shell prompt to
   match, so tests for different kernels can run in parallel.
-- **Debug variant** (`withSanitizers`) boots a KASAN/KMEMLEAK kernel, allots more RAM,
-  inflates the timeout, and adds a `SANITIZER` phase that fails on any KASAN, UBSAN or
-  kmemleak report.
+- **Sanitizer variants** (`sanitizer`, kernels in `guest/debug-kernels.nix`) boot a debug
+  kernel with a homa.ko built for it, allot more RAM, inflate the timeouts
+  (`constants.sanitizerSlowdown`), and add a `SANITIZER` phase that fails on any KASAN,
+  KCSAN, UBSAN or kmemleak report:
+  - `debug`: KASAN (inline), KFENCE, KMEMLEAK, lockdep (`PROVE_LOCKING`),
+    `DEBUG_ATOMIC_SLEEP`, UBSAN (bounds, shift), `DEBUG_LIST`.
+  - `kcsan`: KCSAN, off at boot. When homa.ko loads, a udev rule (`guest/kcsan.nix`)
+    limits reports to Homa's functions and turns it on, so races elsewhere in the kernel
+    stay quiet.
 
-Exposed: `homa-microvm[-<series>|-debug]` (interactive runner, root autologin) and
-`homa-microvm-test[-<series>|-debug]` (`nix run` verdicts).
+Exposed: `homa-microvm[-<series>|-debug|-kcsan]` (interactive runner, root autologin),
+`homa-microvm-test[-<series>|-debug|-kcsan]` (`nix run` verdicts), and
+`homa-pair-lifecycle-{debug,kcsan}` (the pair lifecycle on those kernels).
 
 ## 7. Fuzzing — the (de)serialization focus
 
@@ -220,6 +227,23 @@ links per-tool outputs and writes a `summary.txt` with finding counts.
 - **standard**: + a `bear`-built `compile_commands.json` → `clang-tidy` (bugprone/cert/
   clang-analyzer) + `cppcheck --enable=all --std=c11`.
 - **deep**: + `sparse` (endianness on) + `smatch`.
+- **netdev** (`analysis/netdev.nix`): the checks netdev runs on a submission, on the
+  upstream-shaped source (`make net-next`) placed in a kernel tree as `net/homa`:
+  `checkpatch --strict --codespell`, `kernel-doc -Wall`, and in-tree `W=1` builds with
+  gcc + sparse, clang, and `ARCH=i386`. The other tiers check the out-of-tree source; this
+  one checks what John would send.
+
+Unit-test coverage is `homa-tests-coverage` (`build/userspace.nix`): the unit tests built
+with `--coverage`, then `gcovr` line and branch percentages per file, and an HTML report.
+
+## 8a. Evidence report
+
+`evidence/default.nix` gathers every result into one report, for reviewers and demos:
+`homa-evidence` (no VM: build and cross matrices, unit tests and coverage, `analysis-deep`,
+`analysis-netdev`, fuzzing) writes `evidence.md` and `evidence.html`; `homa-evidence-full`
+adds `homa-vm-matrix` and, with `HOMA_EVIDENCE_SANITIZERS=1`, the pair lifecycle on the
+KASAN and KCSAN kernels. It only gathers: each number comes from a flake output that can be
+built by itself.
 
 ## 9. Deliverables & reports
 
