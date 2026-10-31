@@ -4,6 +4,7 @@
 #   homa-utils        - the util/ benchmark/test binaries (release, mirrors util/Makefile -O3)
 #   homa-utils-debug  - the same, with AddressSanitizer injected via the cc-wrapper
 #   homa-tests        - build + run the test/ kselftest-style unit harness (ASan)
+#   homa-tests-coverage - the same run built with gcov: line/branch coverage of Homa's sources
 #
 # The test harness compiles the kernel C files in user space against the pinned kernel's
 # headers, so it needs KDIR + ARCH=x86 (test/Makefile hardcodes x86 include paths). This is
@@ -148,8 +149,47 @@ let
       description = "Homa kselftest-style unit tests (built + run under AddressSanitizer)";
     };
   };
+
+  # The same unit tests built with gcov, run once; gcovr then reports line, branch and
+  # function coverage of Homa's own sources (not the tests or the mock layer):
+  #   unit.log      the test run
+  #   lines.txt, summary.txt   line and branch coverage per file, plus the total
+  #   coverage.json the totals, for scripts (homa-evidence)
+  #   html/         per-line annotated source
+  homa-tests-coverage = homa-tests.overrideAttrs (old: {
+    pname = "homa-tests-coverage";
+    nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.gcovr ];
+    env = {
+      NIX_CFLAGS_COMPILE = "--coverage";
+      NIX_CFLAGS_LINK = "--coverage";
+    };
+    # Keep the run's output: its last lines count the tests that passed.
+    checkPhase = ''
+      runHook preCheck
+      (cd test && ./unit) 2>&1 | tee unit.log
+      grep -q '^\[  PASSED  \]' unit.log
+      runHook postCheck
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/html"
+      cp unit.log "$out/"
+      # Homa's sources are at the top of the tree, the harness in test/.
+      gcov=(--gcov-executable "${lib.getBin pkgs.stdenv.cc.cc}/bin/gcov" --root .
+        --filter '^(homa_[a-z_]+|timetrace)\.[ch]$' --exclude-unreachable-branches)
+      gcovr "''${gcov[@]}" --txt "$out/summary.txt" --txt-metric branch \
+        --json-summary "$out/coverage.json" --html-details "$out/html/index.html" \
+        test
+      gcovr "''${gcov[@]}" --txt "$out/lines.txt" test
+      cat "$out/lines.txt"
+      runHook postInstall
+    '';
+    meta = homaLib.meta // {
+      description = "Line and branch coverage of Homa's sources by the unit tests";
+    };
+  });
 in
 {
   inherit buildUtils homa-utils homa-utils-debug;
-  packages = { inherit homa-utils homa-utils-debug homa-tests; };
+  packages = { inherit homa-utils homa-utils-debug homa-tests homa-tests-coverage; };
 }
