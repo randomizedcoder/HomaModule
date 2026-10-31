@@ -7,6 +7,8 @@
 #   analysis-quick     python (ruff) + shell (shellcheck/shfmt) + clang-format   (no kernel)
 #   analysis-standard  + cppcheck + clang-tidy (compile DB)
 #   analysis-deep      + sparse (endianness) + smatch
+#   analysis-netdev    netdev's checks on the code as submitted (netdev.nix): checkpatch
+#                      --strict, kernel-doc, in-tree W=1 builds (gcc + sparse, clang, i386)
 #
 # Per-tool packages are also exposed (analysis-ruff, analysis-cppcheck, ...). nix/scope.nix
 # calls this file with callPackage; each tool file is called the same way, and gets
@@ -66,6 +68,7 @@ let
     count = ":[0-9]+:[0-9]+: (warn|error):";
   };
   hasSmatch = pkgs ? smatch;
+  netdev = call ./netdev.nix { };
 
   # A tier is a runCommand that gathers named tool reports into one directory + summary.
   mkTier = tierName: tools:
@@ -106,10 +109,16 @@ let
   analysis-quick = mkTier "analysis-quick" quickTools;
   analysis-standard = mkTier "analysis-standard" standardTools;
   analysis-deep = mkTier "analysis-deep" deepTools;
+
+  # Not a superset of the others: the checks netdev runs on a submission (netdev.nix).
+  netdevTools = map (name: { inherit name; drv = netdev.${name}; })
+    [ "checkpatch" "kdoc" "gcc-w1" "clang-w1" "i386-w1" ];
+  analysis-netdev = mkTier "analysis-netdev" netdevTools;
 in
 {
   packages = {
-    inherit analysis-quick analysis-standard analysis-deep;
+    inherit analysis-quick analysis-standard analysis-deep analysis-netdev;
+    analysis-netdev-tree = netdev.tree;
     analysis-ruff = python;
     analysis-shell = shell;
     analysis-clang-format = clang-format;
@@ -117,7 +126,8 @@ in
     analysis-clang-tidy = clang-tidy;
     analysis-compile-db = compile-db;
     analysis-sparse = sparse;
-  } // lib.optionalAttrs hasSmatch { analysis-smatch = smatch; };
+  } // lib.optionalAttrs hasSmatch { analysis-smatch = smatch; }
+  // lib.listToAttrs (map (t: lib.nameValuePair "analysis-netdev-${t.name}" t.drv) netdevTools);
 
   # `analysis-quick` is kernel-independent, so it makes a good `nix flake check` gate.
   checks = { inherit analysis-quick; };
