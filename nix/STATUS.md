@@ -11,7 +11,7 @@ Related docs:
 
 | | |
 |---|---|
-| **Last update** | 2026-10-29 |
+| **Last update** | 2026-10-31 |
 | **Branch** | `nix-flake` on randomizedcoder/HomaModule, rebased on upstream `main` |
 | **nixpkgs** | `nixos-unstable` |
 | **Default kernel** | `linuxPackages_latest` (7.3); unit harness and fuzz-mock use 6.18.57 headers (F5) |
@@ -26,6 +26,9 @@ Related docs:
 |---|---|---|
 | Module build | `nix build .#homa-build-matrix` | ✅ 6.12, 7.0, 7.1, 7.2, 7.3. ❌ 6.18.57 (F1, not a target). ❌ 6.1/6.6 (no `net/rps.h`, below Homa's range) |
 | Stripped build | `make __STRIP__=1` (7.3) | ✅ clean |
+| netdev checks | `nix build .#analysis-netdev` | ❌ the `make net-next` files do not build in-tree (F12); 8 kernel-doc warnings, 31 checkpatch findings |
+| Unit-test coverage | `nix build .#homa-tests-coverage` | 86.7 % of lines, 81.6 % of branches, 88.5 % of functions |
+| Evidence report | `nix build .#homa-evidence` | every check above that needs no VM, in `evidence.html` |
 | Cross compile | `nix build .#homa-cross-matrix` | ✅ `homa.ko` for riscv64 and aarch64 (7.3, normal and stripped). ❌ `util/` is x86-only (F9) |
 | Unit tests | `nix build .#homa-tests` | ✅ 884/884, in IPv6 and `--ipv4` modes |
 | Fuzzing, real parsers | `nix build .#fuzz-mock` | ✅ all 10 harnesses run clean; the known-findings list is empty |
@@ -36,7 +39,7 @@ Related docs:
 | Lifecycle | `homa-lifecycle-{6_12,7_3}` | ❌ on `main`: phase 3 (smoke) crashes in `homa_route_free` (F8), and phases 7–8 report it. ✅ all 9 phases with the fix, about 22 s |
 | Pair lifecycle | `homa-pair-lifecycle-{6_12,7_3}` | ✅ with the F8 and F11 fixes: 39 timed phases, including five `tc netem` phases (delay, 0.1–5 % loss) and Homa's qdisc with its pacer. Echo, cp_node Homa and TCP complete under every one, and Homa recovers by RESEND. Delay alone triggers many resends (F10). On `main`, traffic stalls under Homa's qdisc (F11), and both nodes oops at rmmod (F8) |
 | VM matrix | `homa-vm-matrix` | ❌ on `main` (F8, F11). ✅ 10/10 with the fixes (forks #22, #23): smoke, lifecycle and pair lifecycle per kernel, plus four pairs, in 183 s |
-| KASAN VM | `homa-microvm-test-debug` | ⏳ not run yet (F7) |
+| Sanitizer VMs | `homa-microvm-test-{debug,kcsan}`, `homa-pair-lifecycle-{debug,kcsan}` | ❌ lockdep fails the KASAN smoke test (F13; KASAN itself is clean with the F8 fix and names F8 without it). ❌ KCSAN finds one race in the Homa qdisc (F14); KCSAN smoke passes, watching 594 Homa functions |
 | Static analysis | `analysis-deep` | Four rounds triaged; see the bugs below |
 
 ### cp_node over the VM link (workload w4, 0.2 Gb/s target, 6 s)
@@ -173,7 +176,8 @@ Times: boot to both shells about 18 s; each traffic phase about 13.6 s; the whol
 | `fuzz-selftest` | ✅ PASS (the canary catches an injected overflow) |
 | `fuzz-mock` | ✅ 10 real-code harnesses through `homa_softirq`; gated on `nix/fuzz/known-findings.txt` (empty) |
 | `homa-microvm-test` (7.3.0), `homa-microvm-test-6_12` | ✅ PASS |
-| `homa-microvm-test-debug` (KASAN) | ⏳ not run (rebuilds the kernel) |
+| `homa-microvm-test-debug` (KASAN), `-kcsan` | ❌ F13 (lockdep) / ✅ PASS |
+| `homa-pair-lifecycle-debug` (KASAN), `-kcsan` | ❌ F13 (lockdep; KASAN clean, see below) / ❌ F14 (KCSAN) |
 | `homa-pair-test`, `homa-pair-test-<server>-<client>` | ✅ PASS for all four 6.12/7.3 pairings |
 | `homa-lifecycle`, `homa-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
 | `homa-pair-lifecycle`, `homa-pair-lifecycle-<series>` | ✅ PASS with the F8 fix (see above) |
@@ -304,8 +308,9 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
 
 ### F7: Coverage gaps in our own testing
 
-- **KASAN/KMEMLEAK VM:** never run. It needs a sanitizer kernel build, about 30 min, cached
-  afterwards.
+- **Sanitizer VMs:** now run (KASAN, KFENCE, KMEMLEAK, lockdep, UBSAN; and KCSAN); see F13
+  and F14. A sanitizer kernel is a full kernel build, cached afterwards, and its guests are
+  about 4× slower (`sanitizerSlowdown`).
 - **Not exercised over a real link yet:** IPv6 between VMs, and more than two nodes. (Loss,
   delay, and the Homa qdisc and pacer are now covered by `homa-pair-lifecycle`.)
 - **7.0–7.2:** compile-checked only; there is no bootable kernel for them in the flake yet.
@@ -400,6 +405,103 @@ Round-4 candidate 5, now reproduced in VMs.
 
 ---
 
+### F12: The upstream-shaped source does not build in a kernel tree (`analysis-netdev`)
+
+`analysis-netdev` puts the files `make net-next` writes into the 7.3 tree as `net/homa` and
+builds them as netdev would (defconfig + `HOMA=m`, `W=1`; gcc + sparse, clang, i386). All
+three builds fail, for two reasons:
+
+- **`util/strip.py` keeps both branches of `#ifndef __UNIT_TEST__ … #else … #endif`.** After
+  `#ifndef` it is in "keep" mode, and `#else /* __UNIT_TEST__ */` sets "keep" again rather
+  than switching to "drop" (`strip.py:331`). In `homa_tx_pool.c` both definitions of
+  `homa_tx_pool_mem_nid()` survive: `redefinition of 'homa_tx_pool_mem_nid'`. checkpatch's
+  "open brace" error is the unit-test stub. Fix: toggle on `#else`.
+- **`homa_rpc_alloc_server()` reads `hsk->sock.sk_memcg` directly** (`homa_rpc.c:143`, from
+  719ea29 "Add cgroup memory accounting"). `struct sock` has `sk_memcg` only under
+  `CONFIG_MEMCG`, so a kernel without memcg (x86_64 and i386 defconfig) does not build.
+  The out-of-tree build only passes because distro kernels enable memcg. Fix:
+  `mem_cgroup_from_sk(&hsk->sock)`, which `<net/sock.h>` stubs to NULL without memcg.
+
+The rest is cleanup a netdev submission would need: 8 kernel-doc warnings (parameters
+renamed without their `@` lines: `homa_pool_unlock`, `__homa_tx_pool_alloc_frag`,
+`homa_tx_pool_alloc_page`; missing `Return:`), and 31 checkpatch findings (`kzalloc_obj`
+and `kmalloc_obj` suggestions from the 7.x rules, two typos, `jiffies` compared without
+`time_after`, line lengths, comment alignment).
+
+### F13: Lock-order inversion between `peertab->lock` and the route table's `ht->lock` (lockdep)
+
+Found by the first run of `homa-microvm-test-debug` with lockdep on (2026-10-30), during the
+smoke test's netns phase, with or without the F8/F11 fixes:
+
+```
+WARNING: SOFTIRQ-safe -> SOFTIRQ-unsafe lock order detected
+kworker (cleanup_net) is trying to acquire &ht->lock at rhashtable_walk_enter
+and this task is already holding &peertab->lock at homa_peer_free_net
+```
+
+- `peertab->lock` is taken in softirq: `homa_gro_receive → homa_softirq →
+  homa_dispatch_pkts → homa_rpc_alloc_server → homa_route_get` (`spin_lock_bh`).
+- `homa_peer_free_net()` holds it and calls `rhashtable_walk_enter()`, which takes the
+  table's `ht->lock` with plain `spin_lock`. The rhashtable rehash worker
+  (`rht_deferred_worker`) holds `ht->lock` with softirqs enabled.
+- **The deadlock:** CPU0's rehash worker holds `ht->lock`, and a Homa packet's softirq on
+  CPU0 then spins on `peertab->lock`. Meanwhile CPU1, in netns exit, holds `peertab->lock`
+  and spins on `ht->lock`. Neither CPU can make progress. It is rare, since it needs a rehash,
+  a netns exit and Homa traffic at the same moment, but it is a hard hang.
+- `homa_route_pick_victims()` (route GC, under `peertab->lock`) calls `rhashtable_walk_enter()`
+  the same way (`homa_peer.c:644`).
+- Fix direction: walk the table without holding `peertab->lock` (`rhashtable_walk_enter`,
+  `_start` and `_stop` all take `ht->lock`), and take it only around each removal and count
+  update, as the rest of net/ walks its rhashtables.
+
+KASAN also reports F8 by name on `main`: `slab-use-after-free in homa_route_free`, from
+an RCU callback.
+
+### F14: Unannotated lockless read of a deferred RPC's packet queue (KCSAN)
+
+Found by `homa-pair-lifecycle-kcsan` (with the F8/F11 fixes) on its second run, in the Homa
+qdisc phase with the pacer on. The first run, all 39 phases, reported nothing: the race needs
+the pacer and the timer to touch the same RPC at the same moment.
+
+```
+BUG: KCSAN: data-race in homa_qdisc_get_deferred_homa [homa] / homa_rpc_tx_end [homa]
+write (marked) ... homa_qdisc_get_deferred_homa <- homa_qdisc_xmit_deferred_homa <- homa_qdisc_pacer
+read ... homa_rpc_tx_end <- homa_timer_check_rpc <- homa_timer
+value changed: 0x00000086 -> 0x00000084
+```
+
+- The pacer dequeues a deferred packet under `qdev->defer_lock` (`__skb_dequeue`, which
+  writes `qlen` with `WRITE_ONCE`). The timer reads the same queue's length with no lock, in
+  `homa_qdisc_deferred_offset()` (`homa_qdisc.h:489`, `skb_queue_len()`), and then
+  `qrpc->tx_left`, which the pacer writes with a plain store (`homa_qdisc.c:953`).
+- The comment there says the race is intended ("the worst that can happen is to return a
+  slightly out-of-date result"), so this is not a logic bug. But the reads are plain loads,
+  which the compiler may tear or re-fetch, and netdev expects such races to be annotated.
+- Fix: `skb_queue_len_lockless()` for the length, and `READ_ONCE`/`WRITE_ONCE` on `tx_left`.
+  Small, and it makes the KCSAN pair lifecycle clean.
+
+KCSAN reports nothing else in Homa's functions, in the smoke test or in either pair-lifecycle
+run (netem loss and delay, the Homa qdisc and pacer, rmmod).
+
+### The pair lifecycle on KASAN kernels
+
+`homa-pair-lifecycle-debug` runs all 39 phases (2026-10-31, with the F8/F11 fixes). KASAN,
+KFENCE, KMEMLEAK and UBSAN report nothing; lockdep reports F13 from both sides (node1's report
+is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk learned
+`peertab->lock -> ht->lock`). So the run fails at dmesg and serial-log until F13 is fixed.
+
+- **Echo 5/6 on the default qdisc, 6/6 on Homa's.** These guests send far slower than the
+  `net.homa.link_mbps` of 25000 that Homa assumes. Without Homa's qdisc and pacer, the
+  client's fq_codel dropped 20032 Homa packets in the baseline alone (275 `data_xmit_errors`),
+  and the 1 MB echo ended in `rpc_timeouts`. With Homa's qdisc (phases 10 and 11) every echo
+  completes. This is the slow sanitizer guest, not a memory bug: the plain kernels pass the
+  same phases. It does show what happens when `link_mbps` overstates the link.
+- **Boot.** On this host (load about 40), a KASAN guest takes up to 13 minutes before udev
+  has announced hvc0 and eth1. So the sanitizer guests wait up to 600 s for devices
+  (`systemd.default_device_timeout_sec`), the boot phase gets `bootTimeoutDebug` (1200 s),
+  and every lifecycle's virtio phase now waits for `systemctl is-system-running` and
+  `udevadm settle` before running anything.
+
 ## Follow-up actions
 
 | # | Action | Why | Effort | Who |
@@ -411,7 +513,7 @@ Round-4 candidate 5, now reproduced in VMs.
 | 16 | F10: why 1 ms of delay triggers resends (sweep `resend_ticks` under netem delay) | A quarter of DATA resent with no loss | small | us, then maybe John |
 | 4 | ~~PLAN-pairs phase 5: Homa qdisc on virtio~~ ✅ `homa-pair-lifecycle` phases 10–12; reproduced round-4 candidate 5 (F11), fix fork #23 | — | — | — |
 | 17 | Send F11 upstream once the user has reviewed fork #23 | The Homa qdisc stalls all traffic on NICs that report no speed | — | us → upstream |
-| 5 | Run `homa-microvm-test-debug`, then a KASAN pair test | Memory-safety coverage of the real data path | medium (kernel build) | us |
+| 5 | ~~Run `homa-microvm-test-debug`, then a KASAN pair test~~ ✅ found F13, F14 (2026-10-31) | Memory-safety coverage of the real data path | — | — |
 | 6 | IPv6 pair test (`--ipv6` for cp_node, v6 addresses on eth1) | #137/#138 were IPv6 bugs; nothing tests v6 between nodes | small | us |
 | 7 | Round-4 candidates 6–8, test-first (5 is fork #23) | More upstream fixes in John's style | medium | us → upstream |
 | 8 | ~~Which LTS will `main` target?~~ ✅ 7.3 or later (John, #120, 2026-10-29) | Closes F1; unit KDIR moves to 7.3 (F5) | — | — |
@@ -420,6 +522,9 @@ Round-4 candidate 5, now reproduced in VMs.
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
 | 14 | Does `util/` need to build off x86? (F9) If so, a portable `rdtsc()` and `REG_RIP` guard | riscv64/aarch64 `util/` builds fail | small | ask John |
 | 15 | riscv `homa_clock_khz()`: `riscv_timebase / 1000` (F9) | Timers 100× off on riscv in the normal build | small | us → upstream (if John wants riscv) |
+| 19 | F13: walk the route table outside `peertab->lock` | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
+| 18 | F12: `strip.py` `#else` toggle and `mem_cgroup_from_sk()`, test-first | The net-next files must build in-tree before any submission | small | us → upstream |
+| 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left` | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
@@ -437,3 +542,4 @@ Round-4 candidate 5, now reproduced in VMs.
 | 2026-10-30 | Tcl review (Ousterhout-style): a phase script's `return`/`break`/`continue` are recorded and errors keep their stack (`phase-errors.log`); `Batch` restores `HOMA_VM_LOGDIR`; modules `protocol`/`parse`/`report`; `parse netemCheck`, one-pass `delta`; `waitFor`, `Node phase`, a `Pair` class; the echo count from `constants.echoRpcs`; full proc headers checked by `style.test`. The nagelfar gate in `tcl-tests` had never failed (wrong output pattern); fixed. Driver output unchanged |
 | 2026-10-30 | Nix workflows for the drivers: `homa-tcl-test` (the suite or part of it: `-file`, `-match`, `--tcl9`) and `homa-tcl-lint`, which the `tcl-tests` check now runs; `homa-vm-compare old new` compares two matrix runs phase by phase (`parse shape`, `report diff`); `nix develop` has Tcl, Expect, tcllib, nagelfar and tclint |
 | 2026-10-30 | Nix review and refactor, same targets: the debug VM boots its KASAN/KMEMLEAK kernel (it booted the plain one before) with a homa.ko built for it, and passes; kernel trees keep their name; `homa-lint` is `analysis-quick`; dead code and unused exports removed (drvPaths checked against a baseline); pair tests build their link port from their name and share one cp_node command line; stale comments fixed |
+| 2026-10-30 | Demo evidence: `analysis-netdev` (netdev's checks on the `make net-next` files: found F12, they do not build in-tree), `homa-tests-coverage` (gcov: 86.7 % of lines), sanitizer VMs (`-debug`: KASAN, KFENCE, KMEMLEAK, lockdep, UBSAN; `-kcsan`) for the smoke test and the pair lifecycle (found F13 and F14; KASAN names F8), and `homa-evidence`, one HTML report of all of it. The netem drop check accepts a quarter of the configured loss (0.1 % measured 0.04 % over 82k packets) |
