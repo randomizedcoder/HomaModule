@@ -35,6 +35,7 @@ pkgs.mkShell {
       nix run .#homa-tcl-lint                       their lint
       nix run .#homa-vm-compare -- old new          two matrix runs' logs, phase by phase
 
+    Docs: nix/docs/DESIGN.md   Status: nix/STATUS.md
     EOF
   '';
 }
