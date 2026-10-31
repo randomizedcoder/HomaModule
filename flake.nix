@@ -1,6 +1,10 @@
 #
 # flake.nix for Homa (HomaModule) — a modular Nix layer over the out-of-tree kernel module.
 #
+# Design & rationale:  nix/docs/DESIGN.md
+# Status + findings:   nix/STATUS.md
+# Quick start:         nix/README.md
+#
 # ── Usage ──────────────────────────────────────────────────────────────────────────────
 #   nix develop                            # dev shell (toolchain + analysis tools)
 #
