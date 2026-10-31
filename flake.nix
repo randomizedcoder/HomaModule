@@ -23,7 +23,9 @@
 #
 #   nix run   .#homa-microvm-test          # boot a microVM, insmod homa.ko, loopback echo RPCs
 #   nix run   .#homa-microvm-test-6_12     # ... per VM kernel: 6_12 7_3 (kernel/config.nix vmSeries)
-#   nix run   .#homa-microvm-test-debug    # ... under a KASAN/KMEMLEAK kernel
+#   nix run   .#homa-microvm-test-debug    # ... under a KASAN/lockdep/UBSAN/KMEMLEAK kernel
+#   nix run   .#homa-microvm-test-kcsan    # ... under KCSAN (data races in Homa)
+#   nix run   .#homa-pair-lifecycle-debug  # the pair lifecycle on those kernels (also -kcsan)
 #   nix run   .#homa-lifecycle[-6_12]      # timed phases driven over ttyS0 + a virtio console
 #   nix run   .#homa-pair-test             # two VMs: echo + cp_node (Homa, TCP) over a link
 #   nix run   .#homa-pair-test-6_12-7_3    # ... server kernel, client kernel (every pairing)
@@ -37,6 +39,12 @@
 #   nix build .#analysis-quick             # python + shell + clang-format (no kernel needed)
 #   nix build .#analysis-standard          # + clang-tidy + cppcheck
 #   nix build .#analysis-deep              # + sparse (endian) + smatch
+#   nix build .#analysis-netdev            # netdev's checks on the code as submitted
+#                                          #   (checkpatch, kernel-doc, W=1 gcc/clang/i386)
+#   nix build .#homa-tests-coverage        # unit tests under gcov: line/branch coverage
+#
+#   nix build .#homa-evidence              # every check above in one report (evidence.html)
+#   nix run   .#homa-evidence-full         # ... plus the VM matrix (and sanitizer VMs)
 #
 #   nix build .#fuzz                       # build all libFuzzer harnesses
 #   FUZZ_TIME=300 ./result/bin/run-fuzzers #   ... then run them for 5 min
@@ -80,6 +88,7 @@
         ./nix/parts/analysis.nix
         ./nix/parts/fuzz.nix
         ./nix/parts/vms.nix
+        ./nix/parts/evidence.nix
         ./nix/parts/dev.nix
       ];
     };

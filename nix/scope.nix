@@ -47,5 +47,6 @@ pkgs.lib.makeScope pkgs.newScope (self: {
     inherit (self.modulePkgs) buildModule;
     homaUtils = self.userspacePkgs.homa-utils;
   };
+  evidencePkgs = self.callPackage ./evidence { };
   devShell = self.callPackage ./dev/shell.nix { };
 })
