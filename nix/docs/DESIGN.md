@@ -78,7 +78,7 @@ nix/
     host/                 # smoke-test.nix, pair-test.nix (bash); lifecycle, pair-lifecycle,
                           #   matrix (Tcl drivers, configured as JSON); tcl.nix
     tcl/                  # the homa::lc Tcl/Expect package, its drivers and tcltest suite
-analysis-reports/         # the reports from the analysis and fuzzing rounds
+analysis-reports/         # the reports from the analysis and fuzzing rounds (fork only)
 ```
 
 Choices behind this layout:
@@ -219,12 +219,12 @@ links per-tool outputs and writes a `summary.txt` with finding counts.
   `util/cp_*` Python scripts), `shellcheck` + `shfmt` (shebang-detected shell), `clang-format` check.
 - **standard**: + a `bear`-built `compile_commands.json` → `clang-tidy` (bugprone/cert/
   clang-analyzer) + `cppcheck --enable=all --std=c11`.
-- **deep**: + `sparse` (endianness on) + `smatch` + `checkpatch`/`kdoc` wrappers reusing
-  the existing Makefile targets.
+- **deep**: + `sparse` (endianness on) + `smatch`.
 
 ## 9. Deliverables & reports
 
-The two reports are **separate documents** under `analysis-reports/`:
+The two reports are **separate documents** under `analysis-reports/` (on the fork's `nix-flake`
+branch, https://github.com/randomizedcoder/HomaModule/tree/nix-flake/analysis-reports):
 - `static-analysis-report.md` — per-tool findings, severity counts, which tiers ran vs were
   skipped (and why, e.g. kernel API drift).
 - `fuzzing-report.md` — organized around the Focus A/B/C areas: per-type parse results, GRO/

@@ -274,4 +274,4 @@ idioms it uses.
 | [`patches/`](patches/) | upstream-pending Homa fixes the flake applies (currently none) |
 | [`docs/`](docs/) | [`DESIGN.md`](docs/DESIGN.md): the reasons behind the layout |
 
-Reports from the analysis and fuzzing runs are in [`../analysis-reports/`](../analysis-reports/).
+Reports from the analysis and fuzzing rounds are on the fork's `nix-flake` branch, in [`analysis-reports/`](https://github.com/randomizedcoder/HomaModule/tree/nix-flake/analysis-reports).

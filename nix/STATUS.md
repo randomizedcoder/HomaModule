@@ -6,7 +6,7 @@ tests, analysis and microVM runs have shown about Homa, and what to look into ne
 Related docs:
 - **Commands and quick start:** [`README.md`](README.md)
 - **Architecture and rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
-- **Upstream PRs and their outcomes:** [`../analysis-reports/pr-tracker.md`](../analysis-reports/pr-tracker.md)
+- **Upstream PRs and their outcomes:** [`analysis-reports/pr-tracker.md`](https://github.com/randomizedcoder/HomaModule/blob/nix-flake/analysis-reports/pr-tracker.md)
 - **VM pair test plan:** [`microvms/PLAN-pairs.md`](microvms/PLAN-pairs.md)
 
 | | |
@@ -278,7 +278,7 @@ Notable fixes:
 - **Use-after-free:** the pacer's round-robin pointer was left on a destroyed qdisc (#140).
 - **Wrong bit tested:** HOMAIOCINFO's `RPC_PRIVATE` check tested `APP_NEEDS_LOCK` (#139).
 
-Pending candidates: [`round4/candidates.md`](../analysis-reports/round4/candidates.md) items 5–8:
+Pending candidates: [`round4/candidates.md`](https://github.com/randomizedcoder/HomaModule/blob/nix-flake/analysis-reports/round4/candidates.md) items 5–8:
 - unknown link speed;
 - destroy after a failed init;
 - `softirq_cores` bounds;
