@@ -16,17 +16,17 @@ John Ousterhout lands PRs by applying our commits to `main` himself, so a landed
 | 2, fuzzing + 7.x port (2026-10-21) | 2 | 2 | 0 |
 | 3, sparse (2026-10-22) | 4 | 4 | 0 |
 
-## Round 5: VM and sanitizer findings (fork drafts, not yet sent)
+## Round 5: VM and sanitizer findings (open)
 
-Drafted 2026-10-31 on the fork, to go upstream as one batch once reviewed.
+Opened 2026-10-31 as one batch.
 
-| Fork | Branch | Change | Found by |
-|---|---|---|---|
-| #22 | `fix/peer-free-net-rcu-barrier` | `rcu_barrier()` in `homa_peer_free_net`: `homa_route_free` use-after-free (F8) | KASAN, test-first |
-| #23 | `fix/qdisc-unknown-link-speed` | Homa qdisc on a link reporting `SPEED_UNKNOWN` (F11) | pair lifecycle, test-first |
-| #26 | `fix/rpc-memcg-without-config-memcg` | `mem_cgroup_from_sk()`, not `sk_memcg` (F12b: no build without `CONFIG_MEMCG`) | `analysis-netdev` |
-| #27 | `fix/peertab-lock-rhashtable-walk` | Walk `route_ht` outside `peertab->lock` (F13: softirq lock-order inversion) | lockdep |
-| #28 | `fix/qdisc-deferred-offset-data-race` | Annotate `homa_qdisc_deferred_offset`'s lockless reads (F14) | KCSAN |
+| Upstream | Fork | Branch | Change | Found by |
+|---|---|---|---|---|
+| [#144](https://github.com/PlatformLab/HomaModule/pull/144) | #22 | `fix/peer-free-net-rcu-barrier` | `rcu_barrier()` in `homa_peer_free_net`: `homa_route_free` use-after-free (F8) | KASAN, test-first |
+| [#145](https://github.com/PlatformLab/HomaModule/pull/145) | #23 | `fix/qdisc-unknown-link-speed` | Homa qdisc on a link reporting `SPEED_UNKNOWN` (F11) | pair lifecycle, test-first |
+| [#146](https://github.com/PlatformLab/HomaModule/pull/146) | #26 | `fix/rpc-memcg-without-config-memcg` | `mem_cgroup_from_sk()`, not `sk_memcg` (F12b: no build without `CONFIG_MEMCG`) | `analysis-netdev` |
+| [#147](https://github.com/PlatformLab/HomaModule/pull/147) | #27 | `fix/peertab-lock-rhashtable-walk` | Walk `route_ht` outside `peertab->lock` (F13: softirq lock-order inversion) | lockdep |
+| [#148](https://github.com/PlatformLab/HomaModule/pull/148) | #28 | `fix/qdisc-deferred-offset-data-race` | Annotate `homa_qdisc_deferred_offset`'s lockless reads (F14) | KCSAN |
 
 F12a (`strip.py` `#else` after `#ifndef`) was fork #25, closed as a duplicate of upstream
 [#134](https://github.com/PlatformLab/HomaModule/pull/134).
