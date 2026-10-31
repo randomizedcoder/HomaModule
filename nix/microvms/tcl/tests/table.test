@@ -1,0 +1,157 @@
+# table.test --
+#
+#	Table-driven tests for homa::lc::Table, the phase table every driver
+#	prints and the matrix parses. Every row is {description category input
+#	outcome expected}; see testTable in helpers.tcl. The input is a list of
+#	phases, each {id name script}, run in order; times are replaced by N so
+#	the expected output is fixed.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc
+
+# runTable --
+#
+#	Runs phases through a new Table in a new directory, then its verdict.
+#
+# Arguments:
+#	phases	a list of {id name script}; each script returns {rc detail}.
+#
+# Results:
+#	A dictionary: rcs (what each phase returned), exit (the verdict's exit
+#	code), out (what was printed) and rows (summary.md's rows, without
+#	its header), with each time replaced by N, and errors (what
+#	phase-errors.log holds, or "absent").
+
+proc runTable {phases} {
+    set dir [tcltest::makeDirectory run]
+    set phaseTable [homa::lc::Table new]
+    set here [pwd]
+    cd $dir
+    try {
+        lassign [quietly {
+            list [lmap phase $phases {
+                lassign $phase id name script
+                $phaseTable phase $id $name $script
+            }] [$phaseTable verdict]
+        }] results printed
+        set summary [homa::lc::readFile summary.md]
+        set errorLog [expr {[file exists phase-errors.log]
+            ? [homa::lc::readFile phase-errors.log] : "absent"}]
+    } finally {
+        cd $here
+        $phaseTable destroy
+        tcltest::removeDirectory run
+    }
+    lassign $results phaseRcs code
+    return [dict create rcs $phaseRcs exit $code errors $errorLog \
+        out [regsub -all {\(\d+ ms\)} $printed {(N ms)}] \
+        rows [lmap row [lrange [parse lines $summary] 2 end] {
+            regsub {^((?:\|[^|]*){3}\|) \d+ \|} $row {\1 N |}
+        }]]
+}
+
+testTable tableVerdict {
+    {"every phase passes" positive {{1 start {list 0 ok}} {2 serial {list 0 {}}}} ok
+        {{0 0} 0 {VERDICT: PASS}}}
+    {"one failure fails the run" negative {{1 start {list 0 {}}} {2 serial {list 1 late}}} ok
+        {{0 1} 1 {VERDICT: FAIL (1 phases)}}}
+    {"a skip is not a failure" corner {{3 smoke {list skip {no shell}}}} ok
+        {skip 0 {VERDICT: PASS}}}
+    {"timeouts and eof are failures" negative
+        {{3 smoke {list 124 {}}} {4 cycles {list 125 {}}}} ok
+        {{124 125} 1 {VERDICT: FAIL (2 phases)}}}
+    {"an error in a phase fails it, not the run" negative
+        {{3 smoke {error boom}} {4 cycles {list 0 {}}}} ok
+        {{1 0} 1 {VERDICT: FAIL (1 phases)}}}
+    {"no phases at all" boundary {} ok
+        {{} 0 {VERDICT: PASS}}}
+    {"a result without an rc fails its phase, not the run" corner
+        {{1 start {}} {2 serial {list 0 {}}}} ok
+        {{1 0} 1 {VERDICT: FAIL (1 phases)}}}
+    {"an rc that is not a number fails its phase" negative {{1 start {list ok {}}}} ok
+        {1 1 {VERDICT: FAIL (1 phases)}}}
+    {"a phase script may return its result" positive {{1 start {return [list 0 ok]}}} ok
+        {0 0 {VERDICT: PASS}}}
+    {"a returned failure is recorded" negative {{1 start {return [list 1 bad]}}} ok
+        {1 1 {VERDICT: FAIL (1 phases)}}}
+    {"break fails the phase, not the run" corner {{1 a break} {2 b {list 0 {}}}} ok
+        {{1 0} 1 {VERDICT: FAIL (1 phases)}}}
+    {"continue fails the phase, not the run" corner {{1 a continue} {2 b {list 0 {}}}} ok
+        {{1 0} 1 {VERDICT: FAIL (1 phases)}}}
+    {"a bare return fails its phase" boundary {{1 a return}} ok
+        {1 1 {VERDICT: FAIL (1 phases)}}}
+} {
+    set result [runTable $input]
+    list [dict get $result rcs] [dict get $result exit] \
+        [lindex [split [string trimright [dict get $result out] \n] \n] end]
+}
+
+testTable tableOutput {
+    {"a phase line with its detail" positive {{3 smoke {list 0 HOMA_SMOKE_PASS}}} ok
+        {  phase 3 smoke: PASS (N ms): HOMA_SMOKE_PASS}}
+    {"no detail, no colon" boundary {{2b virtio {list 0 {}}}} ok
+        {  phase 2b virtio: PASS (N ms)}}
+    {"an error's message is the detail" negative {{3 smoke {error {no such file}}}} ok
+        {  phase 3 smoke: FAIL (N ms): error: no such file}}
+    {"a bad rc is named in the detail" negative {{3 smoke {list ok {}}}} ok
+        {  phase 3 smoke: FAIL (N ms): error: bad rc "ok"}}
+    {"break is named in the detail" corner {{3 smoke break}} ok
+        {  phase 3 smoke: FAIL (N ms): error: break in phase script}}
+    {"continue is named in the detail" corner {{3 smoke continue}} ok
+        {  phase 3 smoke: FAIL (N ms): error: continue in phase script}}
+    {"a bare return's empty rc is named" boundary {{3 smoke return}} ok
+        {  phase 3 smoke: FAIL (N ms): error: bad rc ""}}
+    {"a returned result is printed like any other" positive {{3 smoke {return {0 done}}}} ok
+        {  phase 3 smoke: PASS (N ms): done}}
+    {"a dotted id and a name with spaces" corner {{8.3 {netem loss node1} {list 0 {}}}} ok
+        {  phase 8.3 netem loss node1: PASS (N ms)}}
+} {
+    lindex [split [dict get [runTable $input] out] \n] 0
+}
+
+testTable tableSummary {
+    {"one row per phase, in order" positive {{1 start {list 0 {}}} {2 serial {list 1 late}}} ok
+        {{| 1 | start | PASS | N |  |} {| 2 | serial | FAIL | N | late |}}}
+    {"no phases: just the header" boundary {} ok {}}
+    {"a pipe in the detail is escaped" corner {{3 smoke {list 0 a|b}}} ok
+        {{| 3 | smoke | PASS | N | a\|b |}}}
+} {
+    dict get [runTable $input] rows
+}
+
+# The input is the phases. The result is "absent" if there is no
+# phase-errors.log, else the heading of each entry in it and whether it holds
+# a Tcl stack trace.
+testTable tableErrorLog {
+    {"no error, no phase-errors.log" positive {{1 a {list 0 {}}}} ok absent}
+    {"an error's stack goes to phase-errors.log" negative {{3 smoke {error boom}}} ok
+        {{{phase 3 smoke: boom}} 1}}
+    {"a bad rc is not a script error: no log" corner {{1 a {list ok {}}}} ok absent}
+    {"break is not a script error: no log" corner {{1 a break}} ok absent}
+    {"two errors are both logged, in order" boundary
+        {{1 a {error one}} {2 b {error two}}} ok
+        {{{phase 1 a: one} {phase 2 b: two}} 1}}
+} {
+    set errors [dict get [runTable $input] errors]
+    if {$errors eq "absent"} {
+        return absent
+    }
+    list [lmap {- heading} [regexp -all -inline -line {^(phase .*)$} $errors] {
+        set heading
+    }] [string match "*invoked from within*" $errors]
+}
+
+testTable tableScope {
+    {"a phase script sees and sets the caller's variables" positive 41 ok 42}
+} {
+    set count $input
+    set phaseTable [homa::lc::Table new]
+    try {
+        quietly {$phaseTable phase 1 count {incr count; list 0 {}}}
+    } finally {
+        $phaseTable destroy
+    }
+    set count
+}
+
+tcltest::cleanupTests

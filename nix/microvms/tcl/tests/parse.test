@@ -1,0 +1,285 @@
+# parse.test --
+#
+#	Table-driven tests for homa::lc::parse, the pure functions behind the
+#	lifecycle drivers. Every row is {description category input outcome
+#	expected}; see testTable in helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+
+# ---- Text ------------------------------------------------------------------
+
+testTable firstLine {
+    {"first of several lines" positive "one\ntwo\n" ok one}
+    {"a single line without newline" boundary one ok one}
+    {"empty text" boundary {} ok {}}
+    {"a leading empty line counts" corner "\nsecond" ok {}}
+} {parse firstLine $input}
+
+testTable lines {
+    {"one entry per line" positive "a\nb\n" ok {a b}}
+    {"no final newline" positive "a\nb" ok {a b}}
+    {"empty text has no lines" boundary {} ok {}}
+    {"a blank line in the middle is kept" corner "a\n\nb" ok {a {} b}}
+    {"only newlines" corner "\n\n" ok {}}
+} {parse lines $input}
+
+testTable lastLine {
+    {"last of several lines" positive "one\ntwo\n" ok two}
+    {"trailing empty lines are skipped" corner "one\ntwo\n\n\n" ok two}
+    {"a single line" boundary one ok one}
+    {"empty text" boundary {} ok {}}
+    {"only newlines" corner "\n\n" ok {}}
+} {parse lastLine $input}
+
+# ---- Guest output ----------------------------------------------------------
+
+testTable firstKernelLine {
+    {"a printk timestamp" positive "\[    2.179107\] Linux version" ok {[    2.179107]}}
+    {"firmware noise before the kernel" corner "SeaBIOS\n\[    0.000000\] x" ok {[    0.000000]}}
+    {"no kernel line yet" negative "SeaBIOS (version 1.16)\n" ok {}}
+    {"empty serial log" boundary {} ok {}}
+    {"a timestamp not at the start of a line" corner "x \[ 1.0\] y" ok {}}
+} {parse firstKernelLine $input}
+
+testTable oops {
+    {"a clean dmesg" positive "homa: loaded\nhoma: unloaded\n" ok {}}
+    {"a BUG" negative "ok\nBUG: unable to handle page fault\nok" ok
+        {{BUG: unable to handle page fault}}}
+    {"a WARNING and a KASAN report" negative "WARNING: CPU: 1 PID: 9\nKASAN: use-after-free" ok
+        {{WARNING: CPU: 1 PID: 9} {KASAN: use-after-free}}}
+    {"a general protection fault" negative "Oops: general protection fault" ok
+        {{Oops: general protection fault}}}
+    {"lower-case warning is not an oops" corner "warning: something benign" ok {}}
+    {"WARNING without a colon is not an oops" corner "WARNING something" ok {}}
+    {"empty text" boundary {} ok {}}
+} {parse oops $input}
+
+testTable oopsCount {
+    {"a clean dmesg" positive "homa: loaded\nhoma: unloaded\n" ok 0}
+    {"two oopses; the RIP line is not counted" corner
+        "BUG: x\nRIP: 0010:f\nWARNING: CPU: 1" ok 2}
+    {"one KASAN report" negative "KASAN: use-after-free" ok 1}
+    {"empty text" boundary {} ok 0}
+} {parse oopsCount $input}
+
+testTable oopsAlso {
+    {"the RIP line comes with its oops, in order" positive
+        {"BUG: x\nCPU: 1\nRIP: 0010:homa_peer_free\nok" RIP:} ok
+        {{BUG: x} {RIP: 0010:homa_peer_free}}}
+    {"a RIP line alone is still returned" corner {"RIP: 0010:f" RIP:} ok {{RIP: 0010:f}}}
+    {"an empty extra pattern adds nothing" boundary {"RIP: 0010:f" {}} ok {}}
+    {"a bad extra pattern is an error" negative {"x" (} errorGlob
+        {* compile regular expression pattern: parentheses () not balanced}}
+} {parse oops {*}$input}
+
+testTable smokeDetail {
+    {"a pass" positive {"HOMA_SMOKE_INSMOD_OK\nHOMA_SMOKE_PASS" 0} ok HOMA_SMOKE_PASS}
+    {"a failure names its step" negative {"HOMA_SMOKE_INSMOD_OK\nHOMA_SMOKE_FAIL:ECHO" 1} ok
+        HOMA_SMOKE_FAIL:ECHO}
+    {"the last verdict wins" corner {"HOMA_SMOKE_FAIL:ECHO\nHOMA_SMOKE_PASS" 0} ok HOMA_SMOKE_PASS}
+    {"no verdict: the last step reached" negative
+        {"HOMA_SMOKE_INSMOD_OK\nHOMA_SMOKE_ECHO_OK" 124} ok
+        {no verdict (rc 124), last step: HOMA_SMOKE_ECHO_OK}}
+    {"no output at all" boundary {{} 125} ok {no verdict (rc 125), last step: }}
+} {parse smokeDetail {*}$input}
+
+testTable countLines {
+    {"counts matching lines" positive {{^cycle .* ok} "cycle 1 ok\ncycle 2 ok\n"} ok 2}
+    {"no match" negative {{^cycle .* ok} "insmod: error\n"} ok 0}
+    {"empty text" boundary {{^cycle .* ok} {}} ok 0}
+    {"a match must be anchored per line" corner {{^cycle .* ok} "x cycle 1 ok"} ok 0}
+} {parse countLines {*}$input}
+
+# ---- Counters ----------------------------------------------------------------
+
+set keys {packets_sent_DATA eth1_rx_packets rpc_timeouts}
+
+testTable snap [subst {
+    {"per-core lines are summed" positive
+        {"packets_sent_DATA 10 sent\npackets_sent_DATA 5 sent\neth1_rx_packets 7" {$keys}} ok
+        {packets_sent_DATA 15 eth1_rx_packets 7 rpc_timeouts 0}}
+    {"other counters are ignored" positive
+        {"unknown_rpcs 9\npackets_sent_DATA 1" {$keys}} ok
+        {packets_sent_DATA 1 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"no input gives zeros" boundary {{} {$keys}} ok
+        {packets_sent_DATA 0 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"a non-numeric value is skipped" corner
+        {"packets_sent_DATA n/a\npackets_sent_DATA 4" {$keys}} ok
+        {packets_sent_DATA 4 eth1_rx_packets 0 rpc_timeouts 0}}
+    {"64-bit counters do not overflow" boundary
+        {"packets_sent_DATA 9223372036854775807\npackets_sent_DATA 1" {$keys}} ok
+        {packets_sent_DATA 9223372036854775808 eth1_rx_packets 0 rpc_timeouts 0}}
+}] {parse snap {*}$input}
+
+testTable delta {
+    {"only counters that moved" positive {{a 1 b 2 c 3} {a 1 b 5 c 0}} ok {b 3 c -3}}
+    {"nothing moved" boundary {{a 1} {a 1}} ok {}}
+    {"a counter missing after counts as 0" corner {{a 4} {}} ok {a -4}}
+    {"a counter new after counts from 0" corner {{} {a 4}} ok {a 4}}
+    {"new counters follow the first snap's order" corner
+        {{a 1 b 1} {c 2 a 2 d 3}} ok {a 1 b -1 c 2 d 3}}
+    {"a counter in both but unchanged is dropped, whatever the order" boundary
+        {{a 1 b 2} {b 2 a 1}} ok {}}
+    {"64-bit counters subtract exactly" boundary
+        {{a 0} {a 9223372036854775808}} ok {a 9223372036854775808}}
+    {"both empty" boundary {{} {}} ok {}}
+} {parse delta {*}$input}
+
+testTable get {
+    {"a present counter" positive {{a 3 b 4} b} ok 4}
+    {"an absent counter is 0" negative {{a 3} b} ok 0}
+    {"empty deltas" boundary {{} b} ok 0}
+} {parse get {*}$input}
+
+# ---- cp_node --------------------------------------------------------------------
+
+set cpLine {1 clients: 0.40 Kops/sec, 0.33 Gbps, RTT (us) P50 148.99 P99 26162.00 P99.9 30000.00}
+
+testTable field [subst {
+    {"Kops after clients:" positive {{$cpLine} clients:} ok 0.40}
+    {"P99, not P99.9" corner {{$cpLine} P99} ok 26162.00}
+    {"the last word has no value" boundary {{$cpLine} 30000.00} ok -}
+    {"an absent word" negative {{$cpLine} P10} ok -}
+    {"an empty line" boundary {{} P99} ok -}
+    {"a caller's placeholder" positive {{} P99 —} ok —}
+}] {parse field {*}$input}
+
+testTable positive {
+    {"a positive float" positive 26162.00 ok 1}
+    {"zero, as a stalled cp_node prints it" negative 0.00 ok 0}
+    {"the smallest positive value" boundary 0.01 ok 1}
+    {"a missing field" negative - ok 0}
+    {"an empty string" boundary {} ok 0}
+    {"a negative number" corner -1 ok 0}
+} {parse positive $input}
+
+# The input is {want echoes homa tcp}.
+testTable trafficFailures [subst {
+    {"everything completed" positive {6 6 {$cpLine} {$cpLine}} ok {}}
+    {"echo short of six" negative {6 5 {$cpLine} {$cpLine}} ok echo}
+    {"echo timed out (no count)" corner {6 {} {$cpLine} {$cpLine}} ok echo}
+    {"Homa and TCP stalled" negative {6 6 {P50 0.00 P99 0.00} {}} ok {homa tcp}}
+    {"everything failed" negative {6 0 {} {}} ok {echo homa tcp}}
+    {"a different echo count is honoured" positive {3 3 {$cpLine} {$cpLine}} ok {}}
+    {"more echoes than wanted fails" corner {6 7 {$cpLine} {$cpLine}} ok echo}
+    {"want 0 and no echoes passes" boundary {0 0 {$cpLine} {$cpLine}} ok {}}
+    {"a non-numeric echo count fails" corner
+        {6 {grep: no such file} {$cpLine} {$cpLine}} ok echo}
+    {"a bad want is an error" negative {x 6 {$cpLine} {$cpLine}} error
+        {bad echo count "x"}}
+}] {parse trafficFailures {*}$input}
+
+# ---- tc netem ---------------------------------------------------------------------
+
+set tcNetem "qdisc netem 8001: root refcnt 2 limit 100000 loss 5%
+ Sent 123456 bytes 96410 pkt (dropped 4559, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0"
+set tcHoma "qdisc homa 8006: root refcnt 2
+ Sent 999 bytes 77 pkt (dropped 1, overlimits 0 requeues 0)"
+
+testTable netemSent [subst {
+    {"packets and drops of the netem qdisc" positive {$tcNetem} ok {96410 4559}}
+    {"another qdisc's counters are not netem's" negative {$tcHoma} ok {}}
+    {"netem after another qdisc" corner "$tcHoma\n$tcNetem" ok {96410 4559}}
+    {"a netem line without counters" corner "qdisc netem 8001: root" ok {}}
+    {"no output" boundary {} ok {}}
+}] {parse netemSent $input}
+
+testTable dropRate {
+    {"no loss configured, none seen" positive {1000 0 0} ok {rate 0.00 ok 1}}
+    {"no loss configured, one drop" negative {1000 1 0} ok {rate 0.10 ok 0}}
+    {"1 % configured, 0.76 % seen (GSO)" positive {216477 1662 1} ok {rate 0.76 ok 1}}
+    {"exactly the upper bound 2l + 0.5" boundary {975 25 1} ok {rate 2.50 ok 1}}
+    {"just over the upper bound" boundary {974 26 1} ok {rate 2.60 ok 0}}
+    {"exactly a quarter of the loss over 10k packets" boundary {9975 25 1} ok {rate 0.25 ok 1}}
+    {"under a quarter of the loss over 10k packets" boundary {9976 24 1} ok {rate 0.24 ok 0}}
+    {"0.1 % read as 0.04 % (big GSO batches, slow kernel)" positive {81937 34 0.1} ok
+        {rate 0.04 ok 1}}
+    {"netem off: 1 % configured, no drops in 10k packets" negative {10000 0 1} ok {rate 0.00 ok 0}}
+    {"a small sample needs no lower bound" boundary {9999 0 1} ok {rate 0.00 ok 1}}
+    {"no packets at all" corner {0 0 1} ok {rate 0.00 ok 1}}
+    {"a fractional loss" positive {326224 187 0.1} ok {rate 0.06 ok 1}}
+    {"a non-numeric loss" negative {1000 0 abc} error {not a number: "abc"}}
+    {"a negative packet count" negative {-1 0 1} error {not a count: "-1"}}
+} {parse dropRate {*}$input}
+
+set tcLoss0 "qdisc netem 8002: root refcnt 2 limit 100000
+ Sent 1500 bytes 1000 pkt (dropped 1, overlimits 0 requeues 0)"
+
+# The input is {node text loss}.
+testTable netemCheck [subst {
+    {"5 % loss measured as 4.52 % passes" positive {node1 {$tcNetem} 5} ok
+        {ok 1 report {node1 4559/100969 (4.52%)}}}
+    {"no netem qdisc: drops unknown, nothing to judge" negative
+        {node1 {$tcHoma} 5} ok {ok 1 report {node1 ?/0 (0.00%)}}}
+    {"no output at all" boundary {node0 {} 0} ok
+        {ok 1 report {node0 ?/0 (0.00%)}}}
+    {"0 % configured, 1 drop seen" negative {node0 {$tcLoss0} 0} ok
+        {ok 0 report {node0 1/1001 (0.10%)}}}
+    {"netem after another qdisc" corner {node1 "$tcHoma\n$tcNetem" 5} ok
+        {ok 1 report {node1 4559/100969 (4.52%)}}}
+    {"far more drops than configured" negative {node1 {$tcNetem} 1} ok
+        {ok 0 report {node1 4559/100969 (4.52%)}}}
+    {"a bad loss is an error" negative {node1 {$tcNetem} abc} error
+        {not a number: "abc"}}
+}] {parse netemCheck {*}$input}
+
+testTable netemLimitOk {
+    {"the limit took" positive
+        {{qdisc netem 8001: root refcnt 2 limit 100000 delay 1ms} 100000} ok 1}
+    {"the limit at the end of the line" boundary
+        {{qdisc netem 8001: root refcnt 2 limit 100000} 100000} ok 1}
+    {"tc's default limit" negative
+        {{qdisc netem 8001: root refcnt 2 limit 1000 delay 1ms} 100000} ok 0}
+    {"a longer limit that starts with ours" corner
+        {{qdisc netem 8001: root refcnt 2 limit 1000000} 100000} ok 0}
+    {"on a later line" corner
+        "{qdisc fq_codel 0: root\nqdisc netem 1: root refcnt 2 limit 100000} 100000" ok 1}
+    {"no netem qdisc" negative {{qdisc homa 1: root limit 100000} 100000} ok 0}
+    {"empty output" boundary {{} 100000} ok 0}
+} {parse netemLimitOk {*}$input}
+
+testTable netemDetail {
+    {"the arguments, without tc's prefix" positive
+        "qdisc netem 8001: root refcnt 2 limit 100000 delay 1ms seed 17\n" ok
+        {limit 100000 delay 1ms seed 17}}
+    {"no netem qdisc" negative "qdisc fq_codel 0: root" ok {}}
+    {"empty output" boundary {} ok {}}
+} {parse netemDetail $input}
+
+# ---- A driver's output, for homa-vm-compare ---------------------------------------
+
+testTable shape {
+    {"a phase line keeps its id, name and verdict" positive
+        {  phase 3 smoke: PASS (120 ms): HOMA_SMOKE_PASS} ok {{phase 3 smoke: PASS}}}
+    {"a phase without a detail" boundary
+        {  phase 13 stop servers: PASS (1171 ms)} ok {{phase 13 stop servers: PASS}}}
+    {"a sub-phase whose name has numbers" corner
+        {  phase 8.2 traffic loss0.1: FAIL (13633 ms): echo 0/6} ok
+        {{phase 8.2 traffic loss0.1: FAIL}}}
+    {"a skipped phase" positive
+        {  phase 15 dmesg node0: SKIP (0 ms): no shell on hvc0} ok
+        {{phase 15 dmesg node0: SKIP}}}
+    {"a guest's HOMA line loses its prefix, with numbers masked" positive
+        {[   42.824466] homa-smoke[545]: HOMA_SMOKE_ECHO responses=6 (want 6)} ok
+        {{HOMA_SMOKE_ECHO responses=N (want N)}}}
+    {"cp_node's line: decimals and numbers inside words are masked" corner
+        {HOMA_PAIR_CPNODE_homa 1793386978.012646352 homa_w4 clients: 0.39 Kops/sec} ok
+        {{HOMA_PAIR_CPNODE_homa N homa_wN clients: N Kops/sec}}}
+    {"the verdict is kept as it is, counts included" positive
+        {VERDICT: FAIL (8 phases)} ok {{VERDICT: FAIL (8 phases)}}}
+    {"table rows, counters and other lines are dropped" negative {
+| 3 | smoke | PASS | 120 | HOMA_SMOKE_PASS |
+    node0: packets_sent_DATA=94551
+pair lifecycle-7_3: logs in /tmp/x} ok {}}
+    {"VERDICT must start a line" corner {x VERDICT: PASS} ok {}}
+    {"no output" boundary {} ok {}}
+    {"several lines keep their order" positive {pair lifecycle: logs in /tmp/x
+  phase 1 start: PASS (101 ms): qemu pid 1, consoles on 2/3
+HOMA_PAIR_ECHO responses=6
+  phase 13 stop: PASS (1207 ms)
+VERDICT: PASS} ok
+        {{phase 1 start: PASS} {HOMA_PAIR_ECHO responses=N} {phase 13 stop: PASS} {VERDICT: PASS}}}
+} {parse shape $input}
+
+tcltest::cleanupTests
