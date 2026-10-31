@@ -41,5 +41,6 @@ pkgs.lib.makeScope pkgs.newScope (self: {
     inherit (self.userspacePkgs) homa-utils homa-utils-debug;
   };
   analysisPkgs = self.callPackage ./analysis { };
+  fuzzPkgs = self.callPackage ./fuzz { };
   devShell = self.callPackage ./dev/shell.nix { };
 })

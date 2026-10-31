@@ -24,6 +24,13 @@
 #   nix build .#analysis-standard          # + clang-tidy + cppcheck
 #   nix build .#analysis-deep              # + sparse (endian) + smatch
 #
+#   nix build .#fuzz                       # build all libFuzzer harnesses
+#   FUZZ_TIME=300 ./result/bin/run-fuzzers #   ... then run them for 5 min
+#   nix build .#fuzz-run                   # bounded run -> summary.txt / count.txt / crashes
+#   nix run .#fuzz-deep -- [outdir]        # fork mode + dictionary (FUZZ_DEEP_TIME)
+#   nix build .#fuzz-cov                   # coverage of the wire (de)serialization functions
+#   nix build .#fuzz-selftest              # canary gate (fails if the harness is vacuous)
+#
 #   nix flake show                         # list every output
 #   nix flake check                        # evaluate/build the checks
 #
@@ -57,6 +64,7 @@
         ./nix/parts/scope.nix
         ./nix/parts/build.nix
         ./nix/parts/analysis.nix
+        ./nix/parts/fuzz.nix
         ./nix/parts/dev.nix
       ];
     };
