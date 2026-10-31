@@ -28,6 +28,7 @@ pkgs.mkShell {
       homa-test           build and run the unit tests (ASan)
       homa-clean          make clean
       homa-checkpatch     run kernel checkpatch (needs a Linux source tree)
+      homa-lint           the analysis-quick tier: ruff, shellcheck, clang-format
 
     EOF
   '';

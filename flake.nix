@@ -20,6 +20,10 @@
 #   nix build .#homa-image                 # OCI userspace image  (docker load < result)
 #   nix build .#homa-image-debug
 #
+#   nix build .#analysis-quick             # python + shell + clang-format (no kernel needed)
+#   nix build .#analysis-standard          # + clang-tidy + cppcheck
+#   nix build .#analysis-deep              # + sparse (endian) + smatch
+#
 #   nix flake show                         # list every output
 #   nix flake check                        # evaluate/build the checks
 #
@@ -52,6 +56,7 @@
       imports = [
         ./nix/parts/scope.nix
         ./nix/parts/build.nix
+        ./nix/parts/analysis.nix
         ./nix/parts/dev.nix
       ];
     };
