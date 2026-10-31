@@ -1,0 +1,121 @@
+# files.test --
+#
+#	Table-driven tests for homa::lc::readFile and writeFile, the file helpers
+#	every driver reads its config and writes its logs with. Every row is
+#	{description category input outcome expected}; see testTable in
+#	helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc
+
+# withFile --
+#
+#	Runs a script in the caller's scope, with varName set to the path of a
+#	file in a fresh directory, which the script may write.
+
+##nagelfar syntax withFile n c
+proc withFile {varName script} {
+    upvar 1 $varName path
+    set path [file join [tcltest::makeDirectory files] f]
+    try {
+        return [uplevel 1 $script]
+    } finally {
+        tcltest::removeDirectory files
+    }
+}
+
+# bytes --
+#
+#	A file's contents, as hex bytes.
+
+proc bytes {path} {
+    set chan [open $path rb]
+    try {
+        binary scan [read $chan] H* hex
+        return $hex
+    } finally {
+        close $chan
+    }
+}
+
+# rawFile --
+#
+#	Writes bytes, given as hex, to a file.
+
+proc rawFile {path hex} {
+    set chan [open $path wb]
+    puts -nonewline $chan [binary format H* $hex]
+    close $chan
+}
+
+# Each row's input is text, which writeFile writes and readFile reads back.
+testTable filesRoundTrip {
+    {"ASCII comes back as written" positive "hello" ok "hello\n"}
+    {"non-ASCII (the matrix's kernel arrow) comes back as written" positive
+        "6_12 → 7_3" ok "6_12 → 7_3\n"}
+    {"lines keep their order and gain one final newline" positive "a\nb" ok "a\nb\n"}
+    {"empty text writes an empty file" boundary "" ok ""}
+    {"a trailing newline is kept, then one more added" corner "a\n" ok "a\n\n"}
+} {
+    withFile f {
+        homa::lc::writeFile $f $input
+        homa::lc::readFile $f
+    }
+}
+
+# Each row's input is text: the bytes writeFile writes, as hex.
+testTable filesSpitBytes {
+    {"the arrow is written as three UTF-8 bytes" positive "→" ok e286920a}
+    {"an em dash, as in an empty matrix cell" positive "—" ok e280940a}
+    {"ASCII is one byte a character" positive "ok" ok 6f6b0a}
+    {"empty text writes no bytes" boundary "" ok ""}
+} {
+    withFile f {
+        homa::lc::writeFile $f $input
+        bytes $f
+    }
+}
+
+# Each row's input is a file's bytes, as hex, or "missing" for no file.
+testTable filesSlurp {
+    {"UTF-8 JSON is decoded" positive 7b226b223a22e28692227d ok "{\"k\":\"→\"}"}
+    {"a file that does not exist yet reads as empty" boundary missing ok ""}
+    {"an empty file reads as empty" boundary "" ok ""}
+} {
+    withFile f {
+        if {$input ne "missing"} {
+            rawFile $f $input
+        }
+        homa::lc::readFile $f
+    }
+}
+
+# Each row's input is a file's bytes, as hex, that are not all UTF-8; the
+# body returns how many characters readFile read (what each bad byte becomes
+# differs between Tcl 8.6 and 9).
+testTable filesSlurpBadBytes {
+    {"a lone byte that is not UTF-8 reads as one character" negative 61ff62 ok 3}
+    {"a UTF-8 sequence cut short does not fail the read" corner 61e28662 ok 4}
+    {"a file of nothing but bad bytes" corner ffff ok 2}
+} {
+    withFile f {
+        rawFile $f $input
+        string length [homa::lc::readFile $f]
+    }
+}
+
+# Each row's input is a list of texts appended in turn.
+testTable filesAppend {
+    {"appends add after what is there" positive {a b} ok "a\nb\n"}
+    {"appending to a missing file creates it" boundary {a} ok "a\n"}
+    {"appending empty text adds nothing" corner {a {} b} ok "a\nb\n"}
+} {
+    withFile f {
+        foreach text $input {
+            homa::lc::writeFile $f $text a
+        }
+        homa::lc::readFile $f
+    }
+}
+
+tcltest::cleanupTests

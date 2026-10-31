@@ -1,0 +1,94 @@
+# wait.test --
+#
+#	Table-driven tests for homa::lc::waitFor, which the Node phases use to
+#	wait for QEMU's console port, the first kernel line and QEMU's exit
+#	while still handling events. Every row is {description category input
+#	outcome expected}; see testTable in helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc
+
+# timing --
+#
+#	Classifies how long a wait of ms milliseconds took: "at once" (under
+#	20 ms), "before deadline", "at deadline" (within 100 ms after it), or
+#	"late".
+#
+# Results:
+#	One of those four strings.
+#
+# Side effects:
+#	None.
+
+proc timing {elapsed ms} {
+    if {$elapsed < 20} {
+        return "at once"
+    } elseif {$elapsed < $ms} {
+        return "before deadline"
+    } elseif {$elapsed < $ms + 100} {
+        return "at deadline"
+    }
+    return late
+}
+
+# The input is {ms interval at ?condition?}: ::ready becomes 1 after at ms
+# (0: before the wait, never: not at all), and the condition defaults to
+# $::ready. The result is {waitFor's result, timing}.
+testTable waitFor {
+    {"already true: returns at once" positive {1000 50 0} ok {1 {at once}}}
+    {"true part-way through" positive {1000 50 200} ok {1 {before deadline}}}
+    {"never true: times out at the deadline" negative {200 50 never} ok {0 {at deadline}}}
+    {"0 ms and false: one check, at once" boundary {0 50 never} ok {0 {at once}}}
+    {"0 ms and true: one check, at once" boundary {0 50 0} ok {1 {at once}}}
+    {"true after the last interval: the check at the deadline sees it" boundary
+        {200 50 190} ok {1 {at deadline}}}
+    {"an interval longer than the wait does not overshoot it" corner {100 1000 never} ok
+        {0 {at deadline}}}
+    {"the condition is an expression in the caller's scope" corner
+        {1000 50 0 {$local == 7}} ok {1 {at once}}}
+    {"an error in the condition propagates" negative {1000 50 0 {[error boom]}} error boom}
+    {"a negative wait is an error" negative {-1 50 0} error {bad wait "-1"}}
+    {"an interval of 0 is an error" negative {100 0 0} error {bad interval "0"}}
+} {
+    lassign $input ms interval at condition
+    if {$condition eq ""} {
+        set condition {$::ready}
+    }
+    set local 7
+    set ::ready [expr {$at eq "0"}]
+    if {$at ni {0 never}} {
+        set timer [after $at {set ::ready 1}]
+    }
+    set start [clock milliseconds]
+    try {
+        set result [homa::lc::waitFor $ms $interval $condition]
+    } finally {
+        if {[info exists timer]} {
+            after cancel $timer
+        }
+    }
+    list $result [timing [expr {[clock milliseconds] - $start}] $ms]
+}
+
+# A wait started from an event handler while another wait runs. Each must
+# wait its own time: the inner one is not cut short when the outer one's
+# deadline passes, and the outer one still ends once the inner one returns.
+# The input is {outer inner}, in ms; the result is {outer's result, inner's
+# result, inner's timing}.
+testTable waitForNested {
+    {"a longer inner wait is not cut short by the outer one" corner {100 300} ok
+        {0 0 {at deadline}}}
+    {"a shorter inner wait ends on its own time" corner {300 100} ok
+        {0 0 {at deadline}}}
+} {
+    lassign $input outer inner
+    after 10 [list apply {{inner} {
+        set start [clock milliseconds]
+        set ::innerResult [homa::lc::waitFor $inner 50 0]
+        set ::innerTiming [timing [expr {[clock milliseconds] - $start}] $inner]
+    }} $inner]
+    set outerResult [homa::lc::waitFor $outer 50 0]
+    list $outerResult $::innerResult $::innerTiming
+}
+
+tcltest::cleanupTests

@@ -1,0 +1,67 @@
+# protocol.test --
+#
+#	Table-driven tests for homa::lc::protocol, the end-marker protocol
+#	homa::lc::Console speaks to a guest's shell. Every row is {description
+#	category input outcome expected}; see testTable in helpers.tcl.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc::protocol
+
+# The input is {cmd id}.
+testTable wrap {
+    {"command gets a numbered end marker" positive
+        {{uname -r} 3} ok {uname -r; echo "HOMA_LC_""END 3 rc=$?"}}
+    {"the first command is number 1" boundary
+        {true 1} ok {true; echo "HOMA_LC_""END 1 rc=$?"}}
+    {"a compound command is wrapped as a whole" corner
+        {{a && b || c} 7} ok {a && b || c; echo "HOMA_LC_""END 7 rc=$?"}}
+    {"an id must be a positive integer" negative
+        {true 0} error {bad command id "0"}}
+    {"a non-numeric id is rejected" negative
+        {true x} error {bad command id "x"}}
+    {"a command on two lines is rejected" negative
+        "{true\nfalse} 1" error {command has more than one line}}
+    {"an empty command is rejected (the shell would see \"; echo\")" boundary
+        {{} 1} error {empty command}}
+    {"a blank command is rejected too" corner
+        {{  } 1} error {empty command}}
+} {homa::lc::protocol wrap {*}$input}
+
+# The input is {id line}; the result {keep text done rc}.
+testTable protocolLine {
+    {"plain output is kept" positive
+        {3 hello} ok {1 hello 0 {}}}
+    {"our marker alone ends the command" positive
+        {3 {HOMA_LC_END 3 rc=0}} ok {0 {} 1 0}}
+    {"a non-zero rc is returned as is" positive
+        {3 {HOMA_LC_END 3 rc=124}} ok {0 {} 1 124}}
+    {"output before our marker is kept, and ends it" corner
+        {3 {abcHOMA_LC_END 3 rc=2}} ok {1 abc 1 2}}
+    {"a stale marker alone is dropped, not the end" negative
+        {3 {HOMA_LC_END 2 rc=0}} ok {0 {} 0 {}}}
+    {"output before a stale marker is kept" corner
+        {3 {xHOMA_LC_END 2 rc=0}} ok {1 x 0 {}}}
+    {"a stale marker then ours on one line: ours ends it" corner
+        {3 {HOMA_LC_END 2 rc=1HOMA_LC_END 3 rc=0}} ok {0 {} 1 0}}
+    {"a trailing CR is ignored" corner
+        "3 {HOMA_LC_END 3 rc=2\r}" ok {0 {} 1 2}}
+    {"a CR on an ordinary line is removed" corner
+        "3 {x\r}" ok {1 x 0 {}}}
+    {"a blank line is kept" boundary
+        {3 {}} ok {1 {} 0 {}}}
+    {"a CR-only line is kept as blank" boundary
+        "3 {\r}" ok {1 {} 0 {}}}
+    {"id 33 does not end command 3" boundary
+        {3 {HOMA_LC_END 33 rc=0}} ok {0 {} 0 {}}}
+    {"id 13 does not end command 3" boundary
+        {3 {HOMA_LC_END 13 rc=0}} ok {0 {} 0 {}}}
+    {"the shell's echo of the command is kept, not matched" corner
+        {3 {true; echo "HOMA_LC_""END 3 rc=$?"}} ok
+        {1 {true; echo "HOMA_LC_""END 3 rc=$?"} 0 {}}}
+    {"a non-numeric id is an error" negative
+        {x hello} error {bad command id "x"}}
+    {"id 0 is an error" negative
+        {0 hello} error {bad command id "0"}}
+} {homa::lc::protocol line {*}$input}
+
+tcltest::cleanupTests
