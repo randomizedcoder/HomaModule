@@ -200,10 +200,13 @@ nix build .#homa-cross-matrix        # riscv64 + aarch64: homa.ko and util/ -> s
 HOMA_LINUX_SRC=~/src/linux nix build --impure .#homa-module-local   # your kernel checkout
 nix build .#homa-utils[-debug]       # user-space tools (util/); -debug adds ASan
 nix build .#homa-tests               # build + run the unit tests (ASan)
+nix build .#homa-tests-coverage      # the unit tests under gcov: line/branch coverage per file
 
 nix run   .#homa-microvm-test        # default kernel: insmod, echo, GRO/RPS, rmmod
 nix run   .#homa-microvm-test-<s>    # ... on one kernel
-nix run   .#homa-microvm-test-debug  # ... under a KASAN/KMEMLEAK kernel (slow)
+nix run   .#homa-microvm-test-debug  # ... under KASAN, lockdep, UBSAN, KMEMLEAK (slow)
+nix run   .#homa-microvm-test-kcsan  # ... under KCSAN: data races in Homa's functions (slow)
+nix run   .#homa-pair-lifecycle-debug # the pair lifecycle on that kernel (also -kcsan)
 nix run   .#homa-lifecycle[-<s>]     # host-driven, timed phases over ttyS0 + virtio console
 nix run   .#homa-microvm[-<s>]       # interactive guest
 nix run   .#homa-pair-test           # two VMs: echo + cp_node (Homa, TCP) across a link
@@ -220,6 +223,8 @@ nix build .#homa-image[-debug]       # OCI user-space image (docker load < resul
 nix build .#analysis-quick           # python + shell + clang-format (no kernel needed)
 nix build .#analysis-standard        # + cppcheck + clang-tidy
 nix build .#analysis-deep            # + sparse (endianness) + smatch
+nix build .#analysis-netdev          # netdev's checks on the code as submitted (make net-next):
+                                     #   checkpatch --strict, kernel-doc, W=1 gcc+sparse/clang/i386
 
 nix build .#fuzz                     # standalone wire-decoder + selftest harnesses
 FUZZ_TIME=300 ./result/bin/run-fuzzers   #   ... run them for 5 minutes
@@ -228,6 +233,11 @@ nix run .#fuzz-deep -- [outdir]      # fork mode + dictionary (FUZZ_DEEP_TIME)
 nix build .#fuzz-cov                 # coverage of the wire decoder
 nix build .#fuzz-selftest            # canary gate (fails if the harness is vacuous)
 nix build .#fuzz-mock                # real Homa parsers against a kernel mock
+
+nix build .#homa-evidence            # every check that needs no VM, in one report
+                                     #   (result/evidence.html)
+nix run   .#homa-evidence-full -- out # ... plus the VM matrix; HOMA_EVIDENCE_SANITIZERS=1 adds
+                                     #   the KASAN and KCSAN pair lifecycles
 
 nix flake show                       # list every output
 nix flake check                      # run the checks
@@ -268,9 +278,10 @@ idioms it uses.
 | [`kernel/`](kernel/) | the kernels: the default and the matrix, trees prepared from source, the unit-test tree |
 | [`build/`](build/) | `homa.ko` per kernel and cross-compiled, `util/`, the unit tests, the OCI image |
 | [`dev/`](dev/) | `nix develop`: tool lists, environment, helper functions |
-| [`analysis/`](analysis/) | static analysis in three tiers |
+| [`analysis/`](analysis/) | static analysis in three tiers, and netdev's submission checks |
 | [`fuzz/`](fuzz/) | libFuzzer harnesses for the wire format |
 | [`microvms/`](microvms/) | the QEMU tests: [`guest/`](microvms/guest/) runs in the VMs, [`host/`](microvms/host/) and [`tcl/`](microvms/tcl/) drive them |
+| [`evidence/`](evidence/) | `homa-evidence`: every check's result in one report |
 | [`patches/`](patches/) | upstream-pending Homa fixes the flake applies (currently none) |
 | [`docs/`](docs/) | [`DESIGN.md`](docs/DESIGN.md): the reasons behind the layout |
 
