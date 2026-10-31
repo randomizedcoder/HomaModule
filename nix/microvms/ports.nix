@@ -12,16 +12,17 @@
 #                    link is UDP on link and link + pair.dgramPortOffset, a "socket" link
 #                    TCP on link.
 #
-# <name> is "default" or a vmMatrix series for the consoles; for links, any name in
-# linkNames. Ports are handed out in list order, so adding a kernel only appends ports.
+# <name> is "default", a vmMatrix series or a debugNames entry (the sanitizer VMs) for the
+# consoles; for links, any name in linkNames. Ports are handed out in list order, so adding
+# a kernel only appends ports.
 
-{ lib, constants, vmSeries, linkNames }:
+{ lib, constants, vmSeries, debugNames, linkNames }:
 
 let
   lc = constants.lifecycle;
   pair = constants.pair;
 
-  consoleNames = [ "default" ] ++ vmSeries;
+  consoleNames = [ "default" ] ++ vmSeries ++ debugNames;
   indexOf = names: lib.listToAttrs (lib.imap0 (i: n: lib.nameValuePair n i) names);
   consoleIndex = indexOf consoleNames;
   linkIndex = indexOf (map (l: l.name) linkNames);

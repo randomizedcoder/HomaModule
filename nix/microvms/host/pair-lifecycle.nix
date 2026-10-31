@@ -39,6 +39,7 @@
 , ports           # { node0 = { serial; virtio; }; node1 = { serial; virtio; }; }
 , metrics         # metrics.nix: expMetrics are the counters each traffic phase reports
 , label ? ""
+, slowdown ? 1    # every phase timeout is multiplied by this (sanitizer kernels are slow)
 }:
 
 let
@@ -55,7 +56,10 @@ tclApps.mkTclApp {
   driver = "pair-lifecycle.tcl";
   config = {
     inherit label;
-    inherit (lc) timeouts;
+    # Booting slows down more than the rest: a sanitizer guest's udev can take many minutes
+    # to announce hvc0, so its boot gets the same budget as the debug smoke test's.
+    timeouts = lib.mapAttrs (_: t: t * slowdown) lc.timeouts
+      // lib.optionalAttrs (slowdown > 1) { virtio = constants.bootTimeoutDebug; };
     inherit (lc.qdisc) pacedMbps;
     inherit (constants) echoRpcs;
     peer = pair.nodes.server.ip;
