@@ -1,0 +1,60 @@
+# nix/kernel/config.nix
+#
+# Single source of truth for kernel selection.
+#
+# Returns the default kernelPackages (nixpkgs `linux_latest`, overridable), the derived
+# KDIR / modDirVersion used by the out-of-tree module build, and a "matrix" of every kernel
+# series nixpkgs ships (6.1 ... 7.3), used for per-kernel module builds and microVMs.
+#
+# In the scope (nix/scope.nix) as kernelConfig:
+#   kernelConfig.kernelPackages   # default (nixpkgs linux_latest, 7.3)
+#   kernelConfig.kdir             # "${kernel.dev}/lib/modules/${modDirVersion}/build"
+#   kernelConfig.matrix           # { "6_1" = <kp>; ...; "7_3" = <kp>; } (only those present)
+#   kernelConfig.vmMatrix         # the subset the module builds on, so microVMs are useful
+#   kernelConfig.unitKernelPackages  # the unit harness / mock fuzzers' kernel (6.18), which
+#                                    # kernel/unit-kdir builds its KDIR from
+
+{ pkgs
+, lib
+  # Override the default kernel by passing another kernelPackages set.
+  #
+  # Default = nixpkgs' newest kernel (7.3 at the time of writing): Homa is being ported
+  # forward to 7.x. Upstream `main` builds here since the 7.1 port landed (e65a5c0).
+, kernelPackages ? pkgs.linuxPackages_latest
+  # The unit harness and kernel-mock fuzzers need a kernel whose headers test/mock.c
+  # supports; kept separate so it can lag the default.
+, unitKernelPackages ? pkgs.linuxPackages_6_18
+}:
+
+let
+  # KDIR for a given kernelPackages: the build tree shipped in the kernel's `dev` output.
+  kdirOf = kp: "${kp.kernel.dev}/lib/modules/${kp.kernel.modDirVersion}/build";
+
+  # "7.3.1" -> "7_3"
+  seriesOf = kp: lib.replaceStrings [ "." ] [ "_" ] (lib.versions.majorMinor kp.kernel.version);
+
+  # Matrix: every kernel series nixpkgs still ships, keyed by series. Some attrs exist but
+  # throw on access (EOL kernels), so each is probed with tryEval and only usable ones kept.
+  # Series nixpkgs has dropped (7.0-7.2) come from kernel.org tarballs: see kernel/src.nix.
+  candidates = [ "6_1" "6_6" "6_12" "6_18" "latest" ];
+  kpFor = name: pkgs."linuxPackages_${name}" or null;
+  usable = name:
+    let
+      kp = kpFor name;
+      probe = builtins.tryEval (kp != null && builtins.isString kp.kernel.modDirVersion);
+    in
+    probe.success && probe.value;
+  matrix = lib.listToAttrs
+    (map (n: lib.nameValuePair (seriesOf (kpFor n)) (kpFor n)) (lib.filter usable candidates));
+
+  # Series that get microVM and pair-test targets: those where homa.ko builds on `main`.
+  # 6.1/6.6 are below the supported range and 6.18-stable (6.18.40+, 6.18.57+) backported the
+  # 7.x socket API changes, so they stay in `matrix` (and homa-build-matrix) for visibility.
+  vmSeries = [ "6_12" "7_3" ];
+  vmMatrix = lib.filterAttrs (s: _: lib.elem s vmSeries) matrix;
+in
+{
+  inherit kernelPackages matrix vmMatrix kdirOf seriesOf unitKernelPackages;
+  inherit (kernelPackages.kernel) modDirVersion;
+  kdir = kdirOf kernelPackages;
+}

@@ -1,0 +1,255 @@
+# Homa Nix Flake — Design
+
+> Status: **living design document**. This is the durable *why* and *how* behind the
+> `nix/` tree. For a quick-start command list see [`../README.md`](../README.md); for
+> live build progress see [`../STATUS.md`](../STATUS.md).
+
+## 1. Goal
+
+`HomaModule` is an out-of-tree Linux kernel transport module (`homa.ko`) with C++
+user-space tools (`util/`), a kselftest-style unit-test harness (`test/`, built with
+AddressSanitizer), and ~23 Python analysis scripts. Historically it ships only hand-written
+GNU Makefiles — no Nix, no CI, no linter config.
+
+This flake adds a **reproducible, modular Nix layer** on top, giving a fork of the repo:
+
+1. A **dev shell** with the full toolchain (kernel build deps, gcc/g++, Python + matplotlib/numpy, static-analysis tools).
+2. **Debug + release derivations** of both the kernel module and the user-space tools.
+3. A **microVM** that boots a matching kernel and actually `insmod`s and smoke-tests `homa.ko`.
+4. A **tiered static-analysis** framework (Python/shell/format → clang-tidy/cppcheck → sparse/smatch).
+5. A **fuzzing** framework focused on Homa's wire-format **(de)serialization** paths.
+6. Two generated reports: a **static-analysis report** and a **fuzzing report**.
+
+Everything is **purely additive** — no existing repo file is modified (except an optional
+`.gitignore` line for `result*` symlinks).
+
+## 2. Reference patterns adapted
+
+This design does not invent conventions; it adapts three existing, proven Nix setups:
+
+| Concern | Reference project | What we take |
+|---|---|---|
+| Modular `nix/` layout, debug/release switch, OCI image | `xdp2` | one-concern-per-file modules wired by explicit `import`; a boolean `enableDebug` on a shared derivation; `dockerTools.buildLayeredImage` |
+| microVM that loads an out-of-tree `.ko` | `uds-rdma-proxy` | guest `nixosSystem` + `microvm.nixosModules.microvm`, **co-pinned** `kernelPackages` for guest boot and module build, 9p `/nix/store` share, `insmod $KO` driven over an `expect` console, KASAN debug variant |
+| Userspace libFuzzer framework | `rocm-systems` | `-fsanitize=fuzzer,address,undefined`, `hardeningDisable=["all"]`, attrset-of-recipes harnesses, a `run-fuzzers` wrapper, `summary.txt`/`count.txt` output, `fuzz-deep` crash dedup, `fuzz-cov`, a `fuzz-selftest` canary gate |
+
+## 3. Module map & composition
+
+Three layers, each with one job:
+
+1. **`flake.nix` + `nix/parts/`** (flake-parts). `flake.nix` names the inputs (nixpkgs,
+   flake-parts, microvm.nix) and the systems, and imports one part per area. A part maps
+   scope values to flake outputs and holds no build logic. flake-parts merges the parts'
+   `perSystem` results, so `packages` can come from several files, and a name defined twice
+   is an error rather than a silent `//` override.
+2. **`nix/scope.nix`** (`lib.makeScope`). Every Homa value lives in one package scope.
+   Each file is called with `callPackage`, so it takes only the arguments it names, from
+   the scope first, then from nixpkgs. Nothing threads `pkgs lib kernelConfig src` through
+   by hand, and `homa.overrideScope` swaps a piece (another kernel config, say) and rebuilds
+   whatever depends on it. Files never read flake inputs: they stay callable on their own.
+3. **The area files** (`kernel/`, `build/`, `analysis/`, `fuzz/`, `microvms/`, `dev/`).
+   Each returns `{ packages; checks?; ... }`. What several areas share lives in
+   `nix/lib` (`homaLib`): the source subsets, `mkKbuild`, `perKernel`.
+
+```
+flake.nix                 # inputs, systems, imports nix/parts/*; usage header
+nix/
+  README.md  STATUS.md    # quick start and commands; status, findings, follow-ups
+  docs/DESIGN.md          # this file
+  parts/                  # scope.nix (builds the scope, passes it as `homa`), build, analysis,
+                          #   fuzz, vms, dev
+  scope.nix               # the package scope
+  lib/                    # homaLib: src.{module,util,test,fuzz,all} (lib.fileset + patches/),
+                          #   version, meta, mkKbuild, perKernel
+  patches/                # upstream-pending Homa fixes (a list; currently empty)
+  kernel/                 # config.nix (default kernel, KDIR, matrix, vmSeries), src.nix
+                          #   (trees from tarballs or a local checkout), unit-kdir/
+  build/                  # module.nix, userspace.nix, cross.nix, oci.nix
+  dev/                    # shell.nix, packages.nix, env-vars.nix, shell-functions/
+  analysis/               # default.nix (mkAnalysisTool, tiers), one file per tool,
+                          #   kbuild-check.nix (sparse, smatch)
+  fuzz/                   # default.nix, tools/ (run-fuzzers.sh and the larger builds),
+                          #   harness/, dict/, corpus-seeds/
+  microvms/
+    default.nix           # every VM target
+    constants.nix         # sizes, timeouts, addresses, netem phases, oopsRegex
+    ports.nix             # every host port from one table, asserted unique
+    guest/                # mkVm.nix, smoke.nix, pair.nix, metrics.nix, qdisc.nix
+    host/                 # smoke-test.nix, pair-test.nix (bash); lifecycle, pair-lifecycle,
+                          #   matrix (Tcl drivers, configured as JSON); tcl.nix
+    tcl/                  # the homa::lc Tcl/Expect package, its drivers and tcltest suite
+analysis-reports/         # the reports from the analysis and fuzzing rounds (fork only)
+```
+
+Choices behind this layout:
+
+- **Source subsets, not `self`.** A derivation depends on every byte of its source. Each
+  build gets only what it reads (`homaLib.src.*`, via `lib.fileset`), so editing a README or
+  a `.nix` file outside a build's subset leaves it cached. The version string leaves out the
+  git revision for the same reason.
+- **One helper per repeated shape.** kbuild derivations (`mkKbuild`), analysis tools
+  (`mkAnalysisTool`), fuzz runs (one `run-fuzzers.sh`), and per-kernel package sets
+  (`perKernel`) are each written once.
+- **Checked invariants at evaluation time.** `ports.nix` asserts that no two VM tests bind
+  the same host port; the `tcl-tests` check asserts that the host's oops regex is the
+  guests'.
+- **Tcl/Expect for console driving.** The lifecycle drivers talk to guest shells over TCP
+  consoles, which is Expect's job; see `nix/microvms/tcl/README.md`. Scripts that run in
+  the guests stay bash, shellchecked by `writeShellApplication`.
+
+## 4. Debug vs non-debug model
+
+A single derivation module is instantiated twice via a boolean, mirroring xdp2's
+`enableAsserts`:
+
+- **Kernel module** (`module.nix`, `enableDebug ? false`): release builds with
+  `MY_CFLAGS='-O2'`; debug builds with `MY_CFLAGS='-g -O1 -fno-omit-frame-pointer'`. Homa's
+  Makefile already appends `-g` and has no formal `DEBUG` macro, so at the C level "debug"
+  means optimization/symbols. **Real memory-safety coverage comes from the microVM's
+  KASAN/KMEMLEAK debug kernel** (§6), not from a module CFLAG. This is stated honestly in
+  the module header so nobody over-reads what `homa-module-debug` provides.
+- **User-space** (`userspace.nix`): release mirrors `util/Makefile` (`-O3 -Wall -Werror`);
+  debug mirrors `test/Makefile` (`-fsanitize=address -g`), including the documented
+  `rhashtable.o -O2 -fno-sanitize=address` special case.
+
+## 5. Kernel pinning strategy
+
+`kernel/config.nix` is the single source of truth. nixpkgs is pinned to `nixos-unstable`. The
+default `kernelPackages = pkgs.linuxPackages_latest` (7.3), overridable, because Homa is
+being ported forward to 7.x. Every derivation builds a subset of the source from
+`homaLib.src` (`nix/lib`) rather than `self`, with `nix/patches/` applied: they can carry
+an upstream-pending fix that the default kernel needs. It carried
+the 7.1 port (fork draft #12) until upstream landed it as `e65a5c0`, and is empty now. A
+patch that upstream has absorbed stops applying, which fails the build at patchPhase: that
+is the cue to delete it.
+
+Kernels come from two places:
+
+- **nixpkgs** (`kernelConfig.matrix`, keyed by series: `6_1 6_6 6_12 6_18 7_3`). Each
+  series probed with `tryEval`, so EOL removals drop out instead of breaking evaluation.
+  These get a real `homa-module-<series>` and a bootable `homa-microvm-test-<series>`.
+- **Source** (`kernel/src.nix`): series nixpkgs has already dropped (7.0, 7.1, 7.2 from
+  pinned kernel.org tarballs) and, with `--impure` and `HOMA_LINUX_SRC=/path/to/linux`, a
+  local checkout (`local`). Each is `olddefconfig` + `modules_prepare` in an O= tree using
+  nixpkgs' newest kernel config: about 2.5 minutes and 450 MB, versus a full kernel build.
+  There is no `vmlinux` or `Module.symvers`, so `homa-module-<series>` against these is a
+  compile check built with `KBUILD_MODPOST_WARN=1`, not a loadable module.
+
+`homa-build-matrix` builds Homa against every kernel above in one derivation and writes
+`summary.md` plus per-kernel logs. It records failures rather than failing, so one broken
+kernel never hides the others.
+
+The unit harness and kernel-mock fuzzers stay on 6.18 (`unitKernelPackages`,
+`nix/kernel/unit-kdir`): `test/mock.c` has to support the kernel's headers, and that lags.
+
+## 6. microVM approach
+
+For a kernel module, a container is the wrong unit — you need a real kernel. The microVM
+(astro/microvm.nix, adapted from `uds-rdma-proxy` and xtcp2) provides one per kernel:
+
+- `mkVm.nix` builds a guest `nixosSystem` for a given `kernelPackages` and loads a
+  `homa.ko` built against that same set (avoids vermagic drift). It uses qemu's `pc`
+  machine: on the default `microvm` machine the guest's 8250 UART never registers as
+  ttyS0 and the console goes silent after early boot.
+- The host `/nix/store` is mounted into the guest over **9p**, so the exact `.ko` store
+  path is visible; it is exported to the guest as `environment.variables.HOMA_KO`.
+- **The test runs inside the guest** (xtcp2 pattern). With `autoTest = true`, `smoke.nix`
+  runs as a systemd oneshot with `StandardOutput=journal+console`: `insmod` →
+  `/proc/modules` → loopback echo RPCs (`demo_server1` ← `demo_client1`, 6 messages from
+  100 B to 1 MB, through sendmsg and recvmsg) → the same echo between two network
+  namespaces over veth with GRO on, TSO off (veth only uses GRO then) and
+  `rps_sock_flow_entries` set, with kprobes requiring calls to `homa_gro_receive` and
+  `homa_set_softirq_cpu` (the RPS flow-table code that 7.1 changed) → `rmmod` → dmesg gate. It prints
+  `HOMA_SMOKE_<phase>_OK` lines, then `HOMA_SMOKE_PASS` or `HOMA_SMOKE_FAIL:<phase>`, and
+  powers the VM off.
+- `smoke-test.nix` on the host only boots the runner under `timeout`, captures the console, and
+  greps the sentinels. There is no expect script, no TCP serial port and no shell prompt to
+  match, so tests for different kernels can run in parallel.
+- **Sanitizer variants** (`sanitizer`, kernels in `guest/debug-kernels.nix`) boot a debug
+  kernel with a homa.ko built for it, allot more RAM, inflate the timeouts
+  (`constants.sanitizerSlowdown`), and add a `SANITIZER` phase that fails on any KASAN,
+  KCSAN, UBSAN or kmemleak report:
+  - `debug`: KASAN (inline), KFENCE, KMEMLEAK, lockdep (`PROVE_LOCKING`),
+    `DEBUG_ATOMIC_SLEEP`, UBSAN (bounds, shift), `DEBUG_LIST`.
+  - `kcsan`: KCSAN, off at boot. When homa.ko loads, a udev rule (`guest/kcsan.nix`)
+    limits reports to Homa's functions and turns it on, so races elsewhere in the kernel
+    stay quiet.
+
+Exposed: `homa-microvm[-<series>|-debug|-kcsan]` (interactive runner, root autologin),
+`homa-microvm-test[-<series>|-debug|-kcsan]` (`nix run` verdicts), and
+`homa-pair-lifecycle-{debug,kcsan}` (the pair lifecycle on those kernels).
+
+## 7. Fuzzing — the (de)serialization focus
+
+Homa's core job is moving packets, so **wire-format serialization/deserialization is the
+primary fuzzing focus** — the code most likely to hide bounds, endianness, and emit/ingest
+asymmetry bugs. Kernel code is fuzzed **in user space** with libFuzzer by reusing the
+existing `test/mock.c` kernel-mock layer (which already provides `mock_skb_alloc` and
+userspace substitutes for kernel functions) and the self-contained userspace dissector.
+
+Wire types live in `homa_wire.h`; the packet-type byte sits at offset 13 in every header
+(`enum homa_packet_type`: `DATA=0x10, GRANT=0x11, RESEND=0x12, RPC_UNKNOWN=0x13,
+BUSY=0x14, CUTOFFS=0x15, FREEZE=0x16, NEED_ACK=0x17, ACK=0x18`).
+
+**Focus A — deserialization (parse), one harness per packet type** (`harness/deser/`), so a
+crash pinpoints the exact parser: `fuzz_data_pkt`→`homa_data_pkt`, `fuzz_grant_pkt`,
+`fuzz_resend_pkt`, `fuzz_ack_pkt`, `fuzz_cutoffs_pkt`, `fuzz_need_ack_pkt`,
+`fuzz_rpc_unknown_pkt`; plus `fuzz_dispatch`→`homa_dispatch_pkts` (whole-packet entry) and
+`fuzz_gro`→`homa_gro_receive`/`homa_gso_segment` (the highest-risk `skb_transport_header`→
+`homa_data_hdr` / `__skb_pull` bounds casts).
+
+**Focus B — serialization + roundtrip differential** (`harness/roundtrip/`):
+- `fuzz_roundtrip` — parse → re-emit via `homa_xmit_*`/`homa_message_out_init` → assert
+  parse∘emit invariants (type, RPC id via `homa_local_id`, offsets/lengths survive a
+  `__be*` roundtrip). Catches byte-order and asymmetry bugs a one-direction parse misses.
+- `fuzz_differential` — same bytes into the kernel parse path and the userspace dissector
+  (`dissect_homa`); divergence on type or key fields = a real discrepancy.
+
+**Focus C — userspace dissector** (`harness/fuzz_dissector.c`) over `dissect_homa` alone:
+the easy first win (no kernel mock) and the oracle for `fuzz_differential`.
+
+**Static complement:** the `analysis` deep tier runs `sparse` with `-D__CHECK_ENDIAN__` to
+statically vet the `__be16/__be32/__be64` handling in the same (de)serialization code.
+
+**Targets:** `fuzz` (build all), `fuzz-run` (bounded run → `summary.txt`/`count.txt`/
+symbolized `crashes/<harness>/repro-<sig>.txt`, one per sanitizer signature), `fuzz-deep`
+(`nix run`: fork mode + dictionary, `FUZZ_DEEP_TIME`/`FORKS`/`MAXLEN`),
+`fuzz-cov` (llvm-cov replay, scoped to the wire functions), `fuzz-selftest` (injected-
+overflow canary gate). Runner honors `FUZZ_TIME`/`FUZZ_WORKDIR`.
+
+## 8. Static analysis — tiers
+
+`analysis/default.nix` exposes `analysis-quick|standard|deep`, each a `runCommand` that
+links per-tool outputs and writes a `summary.txt` with finding counts.
+
+- **quick** (no kernel): `ruff` + `mypy` (shebang-aware discovery — Homa has extensionless
+  `util/cp_*` Python scripts), `shellcheck` + `shfmt` (shebang-detected shell), `clang-format` check.
+- **standard**: + a `bear`-built `compile_commands.json` → `clang-tidy` (bugprone/cert/
+  clang-analyzer) + `cppcheck --enable=all --std=c11`.
+- **deep**: + `sparse` (endianness on) + `smatch`.
+- **netdev** (`analysis/netdev.nix`): the checks netdev runs on a submission, on the
+  upstream-shaped source (`make net-next`) placed in a kernel tree as `net/homa`:
+  `checkpatch --strict --codespell`, `kernel-doc -Wall`, and in-tree `W=1` builds with
+  gcc + sparse, clang, and `ARCH=i386`. The other tiers check the out-of-tree source; this
+  one checks what John would send.
+
+Unit-test coverage is `homa-tests-coverage` (`build/userspace.nix`): the unit tests built
+with `--coverage`, then `gcovr` line and branch percentages per file, and an HTML report.
+
+## 8a. Evidence report
+
+`evidence/default.nix` gathers every result into one report, for reviewers and demos:
+`homa-evidence` (no VM: build and cross matrices, unit tests and coverage, `analysis-deep`,
+`analysis-netdev`, fuzzing) writes `evidence.md` and `evidence.html`; `homa-evidence-full`
+adds `homa-vm-matrix` and, with `HOMA_EVIDENCE_SANITIZERS=1`, the pair lifecycle on the
+KASAN and KCSAN kernels. It only gathers: each number comes from a flake output that can be
+built by itself.
+
+## 9. Deliverables & reports
+
+The two reports are **separate documents** under `analysis-reports/` (on the fork's `nix-flake`
+branch, https://github.com/randomizedcoder/HomaModule/tree/nix-flake/analysis-reports):
+- `static-analysis-report.md` — per-tool findings, severity counts, which tiers ran vs were
+  skipped (and why, e.g. kernel API drift).
+- `fuzzing-report.md` — organized around the Focus A/B/C areas: per-type parse results, GRO/
+  GSO casts, roundtrip/differential findings, endianness observations, coverage, reproducers.
