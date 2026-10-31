@@ -10,8 +10,8 @@
 # on the serial console, then powers the VM off: smoke-test.nix only has to capture and grep the
 # console (xtcp2 pattern). autoTest=false gives an interactive VM with root autologin.
 #
-# withSanitizers=true builds a KASAN/KMEMLEAK kernel for the debug VM (heavy: rebuilds the
-# kernel).
+# sanitizer = "kasan" | "kcsan" boots that debug kernel (debug-kernels.nix: heavy, a full
+# kernel build), with homa.ko built against it, so Homa is instrumented too.
 #
 # kernelPackages selects the guest kernel (one VM per kernel/config.nix matrix entry, xtcp2-style).
 #
@@ -27,12 +27,12 @@
 , lib
 , microvm
 , nixpkgs
-, kernelPackages      # guest kernel (with withSanitizers, the base of the KASAN one)
+, kernelPackages      # guest kernel (with a sanitizer, the base of the debug one)
 , buildSystem
 , constants
 , buildModule         # build/module.nix: homa.ko for a kernelPackages
 , homaUtils           # user-space tools (demo_server1/demo_client1 for the smoke test)
-, withSanitizers ? false
+, sanitizer ? null    # null | "kasan" | "kcsan"
 , autoTest ? false
 , pairNode ? null     # null | "server" | "client"
 , pairPort ? null     # host port of the pair link (unique per pair)
@@ -42,35 +42,19 @@
 }:
 
 let
-  # For the debug VM, turn on KASAN/KMEMLEAK by overriding the kernel config.
+  debugKernel = import ./debug-kernels.nix { inherit pkgs lib; };
   guestKernelPackages =
-    if withSanitizers then
-      pkgs.linuxPackagesFor
-        (kernelPackages.kernel.override {
-          structuredExtraConfig = with lib.kernel; {
-            KASAN = yes;
-            KASAN_GENERIC = yes;
-            KASAN_INLINE = yes;
-            DEBUG_KMEMLEAK = yes;
-            KCOV = yes;
-            # Rust is unavailable with these sanitizers, so nixpkgs' RUST = yes and the
-            # drivers that need it would fail the config check ("unused option").
-            RUST = lib.mkForce unset;
-            NOVA_CORE = lib.mkForce unset;
-            DRM_NOVA = lib.mkForce unset;
-            DRM_PANIC_SCREEN_QR_CODE = lib.mkForce unset;
-          };
-        })
-    else kernelPackages;
+    if sanitizer != null then debugKernel sanitizer kernelPackages else kernelPackages;
+  isKasan = sanitizer == "kasan";
 
   # Co-pinned module: homa.ko is built against the kernel the guest boots, so the debug
   # VM's homa.ko is KASAN-instrumented too (kbuild takes the flags from the tree's config).
-  homaKo = buildModule { kernelPackages = guestKernelPackages; enableDebug = withSanitizers; };
+  homaKo = buildModule { kernelPackages = guestKernelPackages; enableDebug = sanitizer != null; };
   homaKoPath = "${homaKo}/lib/modules/${guestKernelPackages.kernel.modDirVersion}/homa.ko";
 
   smoke = import ./smoke.nix {
-    inherit pkgs homaKoPath homaUtils withSanitizers;
-    inherit (constants) oopsRegex echoRpcs;
+    inherit pkgs homaKoPath homaUtils sanitizer;
+    inherit (constants) oopsRegex echoRpcs sanitizerSlowdown;
   };
 
   pair = constants.pair;
@@ -101,13 +85,16 @@ let
         ] ++ lib.optionals isPair [
           # Stable names: the user NIC is eth0 and the pair link eth1.
           "net.ifnames=0"
-        ] ++ lib.optionals withSanitizers [ "kmemleak=on" "kasan_multi_shot" ];
+        ] ++ lib.optionals isKasan [ "kmemleak=on" "kasan_multi_shot" ]
+        # A sanitizer kernel's udev can take minutes to announce devices; past systemd's
+        # 90 s wait, the getty on hvc0 never starts and the lifecycle has no shell.
+        ++ lib.optionals (sanitizer != null) [ "systemd.default_device_timeout_sec=600" ];
         boot.initrd.availableKernelModules = [ "9p" "9pnet" "9pnet_virtio" "virtio_pci" ];
 
         microvm = {
           hypervisor = "qemu";
           vcpu = constants.vcpu;
-          mem = if withSanitizers then constants.memDebug else constants.mem;
+          mem = if sanitizer != null then constants.memDebug else constants.mem;
 
           # Host /nix/store visible in the guest, so $HOMA_KO resolves.
           shares = [{
@@ -181,6 +168,9 @@ let
         # Interactive use: passwordless root autologin on the console.
         services.getty.autologinUser = "root";
         users.users.root.password = "";
+
+        services.udev.extraRules = lib.mkIf (sanitizer == "kcsan")
+          (import ./kcsan.nix { inherit pkgs; });
 
         networking.hostName = if isPair then node.hostname else constants.hostname;
 
