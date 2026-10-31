@@ -1,0 +1,34 @@
+# nix/dev/shell.nix
+#
+# The Homa development shell. Composes the toolchain from packages.nix, the environment
+# fragment from env-vars.nix, and the bash helper functions from shell-functions/*.nix.
+#
+# In the scope (nix/scope.nix) as devShell; nix/parts/dev.nix makes it devShells.default.
+
+{ pkgs
+, packagesModule
+, envVars
+, shellFunctions # bash function definitions (shell-functions/)
+}:
+
+pkgs.mkShell {
+  packages = packagesModule.allPackages;
+
+  # Disable hardening in the shell so an in-shell `make` matches the derivations.
+  hardeningDisable = [ "all" ];
+
+  shellHook = ''
+    ${envVars}
+    ${shellFunctions}
+
+    cat <<'EOF'
+    Homa dev shell.  Kernel module + userspace + analysis toolchain is on PATH.
+
+      homa-build          build homa.ko against $KDIR (override KDIR to retarget)
+      homa-test           build and run the unit tests (ASan)
+      homa-clean          make clean
+      homa-checkpatch     run kernel checkpatch (needs a Linux source tree)
+
+    EOF
+  '';
+}
