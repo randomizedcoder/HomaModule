@@ -24,3 +24,5 @@ reports/
 traces/
 users/
 saved_traces/
+result
+result-*
