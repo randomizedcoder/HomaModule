@@ -30,4 +30,12 @@
   homa-checkpatch() {
     make checkpatch "$@"
   }
+
+  # Quick static analysis: the analysis-quick tier (ruff, shellcheck, clang-format in the
+  # kernel's style), so the shell and the flake report the same findings.
+  homa-lint() {
+    local out
+    out=$(nix build "$(git rev-parse --show-toplevel)#analysis-quick" --no-link --print-out-paths) \
+      && cat "$out/summary.txt" && echo "reports: $out"
+  }
 ''

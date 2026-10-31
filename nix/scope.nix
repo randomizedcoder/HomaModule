@@ -40,5 +40,6 @@ pkgs.lib.makeScope pkgs.newScope (self: {
   ociPkgs = self.callPackage ./build/oci.nix {
     inherit (self.userspacePkgs) homa-utils homa-utils-debug;
   };
+  analysisPkgs = self.callPackage ./analysis { };
   devShell = self.callPackage ./dev/shell.nix { };
 })
