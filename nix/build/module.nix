@@ -21,7 +21,7 @@
 # Per-kernel targets:
 #   homa-module-<series>   nixpkgs kernels (kernel/config.nix matrix): a real .ko, loadable in the
 #                          matching microVM.
-#   homa-module-<series>   kernel-src trees (7.0-7.2, local): compile check only, built with
+#   homa-module-<series>   kernel-src trees (6.17, 7.0-7.2, local): compile check only, built with
 #                          KBUILD_MODPOST_WARN=1 because those trees have no Module.symvers.
 #   homa-build-matrix      one derivation that tries every kernel above and writes a
 #                          pass/fail table plus logs; it never fails itself.
