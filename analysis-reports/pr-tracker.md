@@ -8,17 +8,19 @@ John Ousterhout lands PRs by applying our commits to `main` himself, so a landed
 **CLOSED** on GitHub, not MERGED, and the commit keeps our authorship. Check the
 "Upstream commit" column, not the PR state.
 
-**Score: 16 of 17 landed.**
+**Score: 22 of 23 landed; 3 open.**
 
 | Round | Sent | Landed | Rejected |
 |---|---|---|---|
 | 1, static analysis (2026-09-18) | 11 | 10 | 1 (#94) |
 | 2, fuzzing + 7.x port (2026-10-21) | 2 | 2 | 0 |
 | 3, sparse (2026-10-22) | 4 | 4 | 0 |
+| 4, hand-found (2026-10-28) | 4 | 4 | 0 |
+| 5, VM and sanitizers (2026-10-31) | 5 | 2 (3 open) | 0 |
 
-## Round 5: VM and sanitizer findings (open)
+## Round 5: VM and sanitizer findings (2 landed, 3 open)
 
-Opened 2026-10-31 as one batch.
+Opened 2026-10-31 as one batch. #144 landed as `a6c0f9e`, #145 as `5cb0ec2` (2026-11-06). On #146, John asked for it to build on 6.17.8, which has no `mem_cgroup_from_sk`.
 
 | Upstream | Fork | Branch | Change | Found by |
 |---|---|---|---|---|
@@ -29,11 +31,11 @@ Opened 2026-10-31 as one batch.
 | [#148](https://github.com/PlatformLab/HomaModule/pull/148) | #28 | `fix/qdisc-deferred-offset-data-race` | Annotate `homa_qdisc_deferred_offset`'s lockless reads (F14) | KCSAN |
 
 F12a (`strip.py` `#else` after `#ifndef`) was fork #25, closed as a duplicate of upstream
-[#134](https://github.com/PlatformLab/HomaModule/pull/134).
+[#134](https://github.com/PlatformLab/HomaModule/pull/134), which landed as `10dd9b7`.
 
-## Round 4: hand-found bugs (open)
+## Round 4: hand-found bugs (landed)
 
-Opened 2026-10-28. Each was test-first: the new test fails on `main` and passes with the fix.
+Landed 2026-11-06: #137 `80c891b`, #138 `f88f3e8`, #139 `26afa36`, #140 `565e47b`. Opened 2026-10-28. Each was test-first: the new test fails on `main` and passes with the fix.
 
 | Upstream | Fork | Branch | Change |
 |---|---|---|---|

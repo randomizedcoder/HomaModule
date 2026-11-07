@@ -315,7 +315,7 @@ logic tests, but kernel-API drift on 7.x is only caught by the module builds and
   delay, and the Homa qdisc and pacer are now covered by `homa-pair-lifecycle`.)
 - **7.0–7.2:** compile-checked only; there is no bootable kernel for them in the flake yet.
 
-### F8: Use-after-free in `homa_route_free` on netns exit and rmmod (fix: fork #22)
+### F8: Use-after-free in `homa_route_free` on netns exit and rmmod (landed: a6c0f9e, #144)
 
 `homa_peer_free_net()` (the pernet `.exit` path) releases each of the namespace's routes
 with `call_rcu(homa_route_free)`. The callback dereferences `route->key.hnet->homa->peertab`.
@@ -386,7 +386,7 @@ packets). With 1 % loss and no delay, resends match the drops (2080 RESENDs, 177
   John about. The 2 ms RTT is long for a datacenter, but cross-rack or virtualized paths can
   see it.
 
-### F11: Homa's qdisc stalls all traffic on NICs that report no link speed (fix: fork #23)
+### F11: Homa's qdisc stalls all traffic on NICs that report no link speed (landed: 5cb0ec2, #145)
 
 Round-4 candidate 5, now reproduced in VMs.
 - **Cause:** virtio-net reports `SPEED_UNKNOWN` (-1). `homa_qdev_update_sysctl`
@@ -483,6 +483,17 @@ value changed: 0x00000086 -> 0x00000084
 KCSAN reports nothing else in Homa's functions, in the smoke test or in either pair-lifecycle
 run (netem loss and delay, the Homa qdisc and pacer, rmmod).
 
+### F15: `freed_pages` is set but not used in the stripped `homa_pool_free_bufs` (W=1)
+
+Found by `analysis-netdev` after rebasing onto 5cb0ec2 (2026-11-07), and introduced by the pool
+refactor f67a4b4: `freed_pages` is only read by a `tt_record4`, which `strip.py` removes.
+
+```
+net/homa/homa_pool.c:361:13: error: variable 'freed_pages' set but not used [-Werror=unused-but-set-variable=]
+```
+
+The in-tree W=1 builds (gcc, clang, i386) fail on it. `make __STRIP__=1` without W=1 builds.
+
 ### The pair lifecycle on KASAN kernels
 
 `homa-pair-lifecycle-debug` runs all 39 phases (2026-10-31, with the F8/F11 fixes). KASAN,
@@ -508,23 +519,24 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 |---|---|---|---|---|
 | 1 | ~~F2 experiments~~ ✅ done: QEMU `socket` backend stall, pair tests moved to `dgram` | — | — | — |
 | 2 | ~~PLAN-pairs phase 3: `homa-vm-matrix`~~ ✅ done; its first run found F8 | — | — | — |
-| 13 | Send F8 upstream once the user has reviewed fork #22 | Use-after-free on every netns exit and rmmod | — | us → upstream |
+| 13 | ~~Send F8 upstream~~ ✅ landed (a6c0f9e, #144) | — | — | — |
 | 3 | ~~PLAN-pairs phase 4: netem loss and delay~~ ✅ `homa-pair-lifecycle`; found F10 | — | — | — |
 | 16 | F10: why 1 ms of delay triggers resends (sweep `resend_ticks` under netem delay) | A quarter of DATA resent with no loss | small | us, then maybe John |
 | 4 | ~~PLAN-pairs phase 5: Homa qdisc on virtio~~ ✅ `homa-pair-lifecycle` phases 10–12; reproduced round-4 candidate 5 (F11), fix fork #23 | — | — | — |
-| 17 | Send F11 upstream once the user has reviewed fork #23 | The Homa qdisc stalls all traffic on NICs that report no speed | — | us → upstream |
+| 17 | ~~Send F11 upstream~~ ✅ landed (5cb0ec2, #145) | — | — | — |
 | 5 | ~~Run `homa-microvm-test-debug`, then a KASAN pair test~~ ✅ found F13, F14 (2026-10-31) | Memory-safety coverage of the real data path | — | — |
 | 6 | IPv6 pair test (`--ipv6` for cp_node, v6 addresses on eth1) | #137/#138 were IPv6 bugs; nothing tests v6 between nodes | small | us |
 | 7 | Round-4 candidates 6–8, test-first (5 is fork #23) | More upstream fixes in John's style | medium | us → upstream |
-| 8 | ~~Which LTS will `main` target?~~ ✅ 7.3 or later (John, #120, 2026-10-29) | Closes F1; unit KDIR moves to 7.3 (F5) | — | — |
+| 8 | ~~Which LTS will `main` target?~~ ✅ 7.3 or later (John, #120, 2026-10-29); until then `main` is on 6.17.8 (README, CI), in `homa-build-matrix` since 2026-11-07 | Closes F1; unit KDIR moves to 7.3 (F5) | — | — |
 | 9 | Restore the `homa_drop_packet` call, or drop its sysctls? | F3 | — | ask John |
 | 10 | ~~Post F2 upstream~~ not needed: VM link, not Homa | — | — | — |
 | 11 | Bootable 7.0–7.2 kernels (PLAN-pairs phase 6) | Full VM coverage of the 7.x series | large (kernel builds) | optional |
 | 14 | Does `util/` need to build off x86? (F9) If so, a portable `rdtsc()` and `REG_RIP` guard | riscv64/aarch64 `util/` builds fail | small | ask John |
 | 15 | riscv `homa_clock_khz()`: `riscv_timebase / 1000` (F9) | Timers 100× off on riscv in the normal build | small | us → upstream (if John wants riscv) |
 | 19 | F13: walk the route table outside `peertab->lock`, sent (upstream #147) | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
-| 18 | F12: `strip.py` `#else` toggle (upstream #134, not ours) and `mem_cgroup_from_sk()`, sent (upstream #146) | The net-next files must build in-tree before any submission | small | us → upstream |
+| 18 | F12: `strip.py` `#else` toggle (landed: 10dd9b7, #134, not ours) and `mem_cgroup_from_sk()`, sent (upstream #146) | The net-next files must build in-tree before any submission | small | us → upstream |
 | 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left`, sent (upstream #148) | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
+| 21 | F15: `freed_pages` only under `#ifndef __STRIP__` in `homa_pool_free_bufs` | `analysis-netdev`: the stripped source fails W=1 again | small | us → upstream |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
@@ -544,3 +556,4 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 2026-10-30 | Nix review and refactor, same targets: the debug VM boots its KASAN/KMEMLEAK kernel (it booted the plain one before) with a homa.ko built for it, and passes; kernel trees keep their name; `homa-lint` is `analysis-quick`; dead code and unused exports removed (drvPaths checked against a baseline); pair tests build their link port from their name and share one cp_node command line; stale comments fixed |
 | 2026-10-30 | Demo evidence: `analysis-netdev` (netdev's checks on the `make net-next` files: found F12, they do not build in-tree), `homa-tests-coverage` (gcov: 86.7 % of lines), sanitizer VMs (`-debug`: KASAN, KFENCE, KMEMLEAK, lockdep, UBSAN; `-kcsan`) for the smoke test and the pair lifecycle (found F13 and F14; KASAN names F8), and `homa-evidence`, one HTML report of all of it. The netem drop check accepts a quarter of the configured loss (0.1 % measured 0.04 % over 82k packets) |
 | 2026-10-31 | Fixes drafted on the fork: #26 (F12b), #27 (F13), #28 (F14); F12a is upstream #134. Gated with temporary `nix/patches` (all of F8, F11, F12a/b, F13, F14): 884/884 unit tests; `analysis-netdev` builds in-tree (gcc, clang, i386 W=1: 0 warnings); KASAN/lockdep smoke PASS and pair lifecycle with no sanitizer report (its 7 failures are echo 5/6 on the default qdisc, see above); KCSAN pair lifecycle PASS 3 of 3. `homaLib` drops a patch with no hunks in a subset (a `util/`-only fix in the module's source) |
+| 2026-11-07 | Rebased onto 5cb0ec2: F8, F11, F12a and round 4 (#137-#140) landed. John on #146: `mem_cgroup_from_sk` is not in 6.17.8, the kernel `main` is on; `homa-build-matrix` tested 6.12, 6.18 and 7.x but not that one, so it missed it. Added 6.17.8 (`kernelSrc`, BTF off: its libbpf fails on current glibc). Found F15. The VM results above predate this rebase |
