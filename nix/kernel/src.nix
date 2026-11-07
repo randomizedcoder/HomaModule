@@ -1,8 +1,8 @@
 # nix/kernel/src.nix
 #
 # Kernel build trees prepared from SOURCE, for compile-testing homa.ko against kernels that
-# nixpkgs no longer ships (7.0-7.2 are EOL-removed) or has not released (a local checkout of
-# net-next / mainline).
+# nixpkgs no longer ships (7.0-7.2 are EOL-removed; 6.17.8, the version Homa's README and CI
+# name for `main`) or has not released (a local checkout of net-next / mainline).
 #
 # Each tree is the kernel source plus `make olddefconfig modules_prepare` in an O= build
 # directory, configured from nixpkgs' newest kernel config. That is enough for
@@ -16,7 +16,7 @@
 #                HOMA_LINUX_SRC=~/Downloads/linux nix build --impure .#homa-build-matrix
 #
 # In the scope (nix/scope.nix) as kernelSrc:
-#   kernelSrc.trees     # { "7_0" = <drv>; "7_1" = <drv>; "7_2" = <drv>; [ local = <drv>; ] }
+#   kernelSrc.trees     # { "6_17" = <drv>; "7_0" = <drv>; ...; [ local = <drv>; ] }
 #   "${kernelSrc.trees."7_1"}/build"   # KDIR
 
 { pkgs
@@ -28,6 +28,13 @@ let
   configKernel = pkgs.linuxPackages_latest.kernel;
 
   tarballs = {
+    # BTF off: 6.17's libbpf, which resolve_btfids builds, fails on glibc's C23 strstr with
+    # -Werror=discarded-qualifiers, and a compile check doesn't need BTF.
+    "6_17" = {
+      version = "6.17.8";
+      hash = "sha256-Wo3mSnX8pwbAHGwKd891p0YYQ52xleJfHwJor2svsdo=";
+      disable = [ "DEBUG_INFO_BTF" ];
+    };
     "7_0" = { version = "7.0.14"; hash = "sha256-3pmZt4TSKT8A05xi2PkqCKuKVLxOgP/SUKDAnLB6D5g="; };
     "7_1" = { version = "7.1.13"; hash = "sha256-YU2V+v3LXM4rZiDn7cavu2Br/9RlVAVYaBXYRoeEGtc="; };
     "7_2" = { version = "7.2.12"; hash = "sha256-uxhGio3Il4qgDKpkRudT97baP+5Wtrfzixb5QwugLU8="; };
@@ -43,6 +50,7 @@ let
     , version
     , src
     , configfile ? configKernel.configfile
+    , disable ? [ ]    # config symbols to turn off
     , makeFlags ? [ ]
     , extraInputs ? [ ]
     }: pkgs.stdenv.mkDerivation {
@@ -66,6 +74,9 @@ let
         cd "$out/source"
         mkdir -p "$out/build"
         cp ${configfile} "$out/build/.config"
+        ${lib.concatMapStrings (c: ''
+          scripts/config --file "$out/build/.config" -d ${c}
+        '') disable}
         make O="$out/build" ${toString makeFlags} olddefconfig
         make O="$out/build" ${toString makeFlags} -j"$NIX_BUILD_CORES" modules_prepare
         # Keep enough source for M= builds (headers, scripts, arch, Kbuild/Kconfig files).
@@ -80,10 +91,10 @@ let
       passthru = { inherit makeFlags; };
     };
 
-  fromTarball = name: { version, hash }: mkTree {
-    inherit name version;
+  fromTarball = name: { version, hash, disable ? [ ] }: mkTree {
+    inherit name version disable;
     src = pkgs.fetchurl {
-      url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${version}.tar.xz";
+      url = "https://cdn.kernel.org/pub/linux/kernel/v${lib.versions.major version}.x/linux-${version}.tar.xz";
       inherit hash;
     };
   };

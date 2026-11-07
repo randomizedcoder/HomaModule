@@ -35,7 +35,7 @@ let
 
   # Matrix: every kernel series nixpkgs still ships, keyed by series. Some attrs exist but
   # throw on access (EOL kernels), so each is probed with tryEval and only usable ones kept.
-  # Series nixpkgs has dropped (7.0-7.2) come from kernel.org tarballs: see kernel/src.nix.
+  # Series nixpkgs has dropped (6.17, 7.0-7.2) come from kernel.org tarballs: see kernel/src.nix.
   candidates = [ "6_1" "6_6" "6_12" "6_18" "latest" ];
   kpFor = name: pkgs."linuxPackages_${name}" or null;
   usable = name:
