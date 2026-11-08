@@ -1,0 +1,181 @@
+# batch.test --
+#
+#	Table-driven tests for homa::lc::Batch, which homa-vm-matrix uses to
+#	run every VM test at once. Small shell scripts stand in for the tests.
+#	Every row is {description category input outcome expected}; see
+#	testTable in helpers.tcl. The input is {limit tests}, each test
+#	{name script}, and the body returns each test's rc and output.
+
+source [file join [file dirname [info script]] helpers.tcl]
+package require homa::lc
+
+# runBatch --
+#
+#	Writes each test's script to an executable file, runs them all through
+#	a Batch, and returns what each did.
+#
+# Arguments:
+#	limit	the Batch's job limit.
+#	tests	a list of {name script}: script is the body of a sh script,
+#		or "missing" for a test whose command does not exist.
+#
+# Results:
+#	A list, per test in order: {name rc out}, with the run's log
+#	directory replaced by LOGDIR.
+
+proc runBatch {limit tests} {
+    set logdir [tcltest::makeDirectory work]
+    try {
+        set specs [lmap test $tests {
+            lassign $test testName script
+            set path [file join $logdir $testName.sh]
+            if {$script ne "missing"} {
+                homa::lc::writeFile $path "#!/bin/sh\n$script"
+                file attributes $path -permissions 0755
+            }
+            dict create name $testName exe $path
+        }]
+        set batch [homa::lc::Batch new $logdir $limit]
+        try {
+            lassign [quietly {$batch run $specs}] results
+        } finally {
+            $batch destroy
+        }
+        return [lmap test $tests {
+            set name [lindex $test 0]
+            set out [homa::lc::readFile [file join $logdir $name.out]]
+            string map [list $logdir LOGDIR] [list $name [lindex [dict get $results $name] 0] \
+                [string trimright $out \n]]
+        }]
+    } finally {
+        tcltest::removeDirectory work
+    }
+}
+
+# Each test holds ../lock while it runs: with more than one at a time, the
+# second fails to take it and exits 9.
+set holdLock {mkdir ../lock || exit 9; sleep 0.3; rmdir ../lock}
+
+testTable batch {
+    {"a passing test: rc 0 and its output" positive {1 {{a {echo hello}}}} ok
+        {{a 0 hello}}}
+    {"a failing test's exit status" negative {1 {{a {echo no; exit 3}}}} ok
+        {{a 3 no}}}
+    {"stderr goes to the same file" positive {1 {{a {echo out; echo err >&2}}}} ok
+        {{a 0 {out
+err}}}}
+    {"each runs in its own directory, named by HOMA_VM_LOGDIR" positive
+        {2 {{a {pwd; echo "$HOMA_VM_LOGDIR"}} {b {pwd}}}} ok
+        {{a 0 {LOGDIR/a
+LOGDIR/a}} {b 0 LOGDIR/b}}}
+    {"a test killed by a signal" negative {1 {{a {kill -KILL $$}}}} ok
+        {{a SIGKILL {}}}}
+    {"a test that cannot start" negative {1 {{a missing} {b {echo ran}}}} ok
+        {{a {error: couldn't execute "LOGDIR/a.sh": no such file or directory} {}} {b 0 ran}}}
+    {"an empty script passes" boundary {1 {{a {}}}} ok
+        {{a 0 {}}}}
+    {"no tests" boundary {1 {}} ok {}}
+    {"more tests than the limit all run" corner
+        {2 {{a {exit 1}} {b {exit 2}} {c {exit 3}} {d {exit 4}} {e {exit 5}}}} ok
+        {{a 1 {}} {b 2 {}} {c 3 {}} {d 4 {}} {e 5 {}}}}
+    {"a limit of 0 is an error" negative {0 {{a {exit 0}}}} error
+        {bad job limit "0"}}
+    {"a limit that is not a number" negative {many {{a {exit 0}}}} error
+        {bad job limit "many"}}
+    {"two tests with one name" negative {2 {{a {exit 0}} {a {exit 0}}}} error
+        {test names are not unique: a a}}
+} {
+    runBatch {*}$input
+}
+
+# The highest rc of three tests that each hold ../lock: 9 if any two ran
+# at once.
+testTable batchParallel {
+    {"a limit of 1 runs them one at a time" boundary 1 ok 0}
+    {"a limit of 2 runs two at once" positive 2 ok 9}
+    {"a limit above the number of tests runs them all at once" corner 10 ok 9}
+} {
+    set rcs [lmap result [runBatch $input [list [list a $::holdLock] [list b $::holdLock] \
+        [list c $::holdLock]]] {lindex $result 1}]
+    tcl::mathfunc::max {*}$rcs
+}
+
+# envState --
+#
+#	Returns env(name) as a list of one value, or an empty list if unset,
+#	so "unset" and "set to empty" differ.
+
+proc envState {name} {
+    global env
+    if {[info exists env($name)]} {
+        return [list $env($name)]
+    }
+    return {}
+}
+
+# setEnvState --
+#
+#	Sets env(name) from a state as envState returns it.
+
+proc setEnvState {name state} {
+    global env
+    if {[llength $state]} {
+        set env($name) [lindex $state 0]
+    } else {
+        unset -nocomplain env($name)
+    }
+}
+
+# The input is {prior value script}: prior as envState gives it. The result is
+# {code result after}: withEnv's catch code and result, and envState after.
+testTable withEnv {
+    {"the script sees the value" positive {{} v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v {}}}
+    {"a prior value is restored" positive {old v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v old}}
+    {"an error in the script still restores the value" negative {old v {error boom}} ok
+        {1 boom old}}
+    {"an error with no prior value still unsets it" negative {{} v {error boom}} ok
+        {1 boom {}}}
+    {"an empty value is set, not unset" boundary {{} {} {info exists ::env(HOMA_TEST_ENV)}} ok
+        {0 1 {}}}
+    {"a prior empty value is restored as empty" boundary {{{}} v {set ::env(HOMA_TEST_ENV)}} ok
+        {0 v {{}}}}
+    {"nested calls restore in order" corner
+        {old v {list [homa::lc::withEnv HOMA_TEST_ENV inner {set ::env(HOMA_TEST_ENV)}]\
+            $::env(HOMA_TEST_ENV)}} ok
+        {0 {inner v} old}}
+    {"the script runs in the caller's scope" corner {{} v {set here}} ok
+        {0 caller {}}}
+} {
+    lassign $input prior value script
+    setEnvState HOMA_TEST_ENV $prior
+    set here caller
+    set code [catch {homa::lc::withEnv HOMA_TEST_ENV $value $script} result]
+    set after [envState HOMA_TEST_ENV]
+    unset -nocomplain ::env(HOMA_TEST_ENV)
+    list $code $result $after
+}
+
+# The input is {prior script}: HOMA_VM_LOGDIR before the batch, as envState
+# gives it, and the test's script ("missing" for one that cannot start). The
+# result is HOMA_VM_LOGDIR after it, as envState gives it.
+testTable batchEnv {
+    {"a caller's value is restored" positive {/keep {exit 0}} ok /keep}
+    {"unset before, unset after" positive {{} {exit 0}} ok {}}
+    {"an empty value is restored as empty" boundary {{{}} {exit 0}} ok {{}}}
+    {"restored even when the test cannot start" negative {/keep missing} ok /keep}
+    {"a value with spaces and a newline" corner {{"a b\nc"} {exit 0}} ok "{a b\nc}"}
+} {
+    lassign $input prior script
+    set saved [envState HOMA_VM_LOGDIR]
+    setEnvState HOMA_VM_LOGDIR $prior
+    try {
+        runBatch 1 [list [list a $script]]
+        envState HOMA_VM_LOGDIR
+    } finally {
+        setEnvState HOMA_VM_LOGDIR $saved
+    }
+}
+
+tcltest::cleanupTests
