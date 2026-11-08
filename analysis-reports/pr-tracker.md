@@ -20,13 +20,13 @@ John Ousterhout lands PRs by applying our commits to `main` himself, so a landed
 
 ## Round 5: VM and sanitizer findings (2 landed, 3 open)
 
-Opened 2026-10-31 as one batch. #144 landed as `a6c0f9e`, #145 as `5cb0ec2` (2026-11-06). On #146, John asked for it to build on 6.17.8, which has no `mem_cgroup_from_sk`.
+Opened 2026-10-31 as one batch. #144 landed as `a6c0f9e`, #145 as `5cb0ec2` (2026-11-06). On #146, John asked for it to build on 6.17.8, which has no `mem_cgroup_from_sk`; fixed with a `LINUX_VERSION_CODE` check and force-pushed (2026-11-07), CI green on #146-#148.
 
 | Upstream | Fork | Branch | Change | Found by |
 |---|---|---|---|---|
 | [#144](https://github.com/PlatformLab/HomaModule/pull/144) | #22 | `fix/peer-free-net-rcu-barrier` | `rcu_barrier()` in `homa_peer_free_net`: `homa_route_free` use-after-free (F8) | KASAN, test-first |
 | [#145](https://github.com/PlatformLab/HomaModule/pull/145) | #23 | `fix/qdisc-unknown-link-speed` | Homa qdisc on a link reporting `SPEED_UNKNOWN` (F11) | pair lifecycle, test-first |
-| [#146](https://github.com/PlatformLab/HomaModule/pull/146) | #26 | `fix/rpc-memcg-without-config-memcg` | `mem_cgroup_from_sk()`, not `sk_memcg` (F12b: no build without `CONFIG_MEMCG`) | `analysis-netdev` |
+| [#146](https://github.com/PlatformLab/HomaModule/pull/146) | #26 | `fix/rpc-memcg-without-config-memcg` | `mem_cgroup_from_sk()` from 6.18, `sk_memcg` before (F12b: no build without `CONFIG_MEMCG`) | `analysis-netdev` |
 | [#147](https://github.com/PlatformLab/HomaModule/pull/147) | #27 | `fix/peertab-lock-rhashtable-walk` | Walk `route_ht` outside `peertab->lock` (F13: softirq lock-order inversion) | lockdep |
 | [#148](https://github.com/PlatformLab/HomaModule/pull/148) | #28 | `fix/qdisc-deferred-offset-data-race` | Annotate `homa_qdisc_deferred_offset`'s lockless reads (F14) | KCSAN |
 
@@ -132,6 +132,9 @@ on 6.18.57. That is a hard error for the module (gcc 15+) and a
 about before sending code, since he plans to move `main` to the next LTS.
 
 ## Next
+
+F15 (`freed_pages` set but unused in the stripped `homa_pool_free_bufs`, W=1): drafted as fork
+[#29](https://github.com/randomizedcoder/HomaModule/pull/29), `fix/pool-freed-pages-strip`, waiting for review.
 
 Round 4 plan, eight candidates: [`round4/candidates.md`](round4/candidates.md).
 

@@ -494,6 +494,10 @@ net/homa/homa_pool.c:361:13: error: variable 'freed_pages' set but not used [-We
 
 The in-tree W=1 builds (gcc, clang, i386) fail on it. `make __STRIP__=1` without W=1 builds.
 
+Fix: the declaration and increment go inside `#ifndef __STRIP__` blocks. Drafted as fork #29
+(`fix/pool-freed-pages-strip`); with it and #146, `analysis-netdev`'s gcc, clang and i386 W=1
+builds have 0 findings.
+
 ### The pair lifecycle on KASAN kernels
 
 `homa-pair-lifecycle-debug` runs all 39 phases (2026-10-31, with the F8/F11 fixes). KASAN,
@@ -536,7 +540,7 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 19 | F13: walk the route table outside `peertab->lock`, sent (upstream #147) | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
 | 18 | F12: `strip.py` `#else` toggle (landed: 10dd9b7, #134, not ours) and `mem_cgroup_from_sk()`, sent (upstream #146) | The net-next files must build in-tree before any submission | small | us → upstream |
 | 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left`, sent (upstream #148) | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
-| 21 | F15: `freed_pages` only under `#ifndef __STRIP__` in `homa_pool_free_bufs` | `analysis-netdev`: the stripped source fails W=1 again | small | us → upstream |
+| 21 | F15: `freed_pages` only under `#ifndef __STRIP__` in `homa_pool_free_bufs` | `analysis-netdev`: the stripped source fails W=1 again | small | drafted (fork #29) |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
@@ -556,4 +560,4 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 2026-10-30 | Nix review and refactor, same targets: the debug VM boots its KASAN/KMEMLEAK kernel (it booted the plain one before) with a homa.ko built for it, and passes; kernel trees keep their name; `homa-lint` is `analysis-quick`; dead code and unused exports removed (drvPaths checked against a baseline); pair tests build their link port from their name and share one cp_node command line; stale comments fixed |
 | 2026-10-30 | Demo evidence: `analysis-netdev` (netdev's checks on the `make net-next` files: found F12, they do not build in-tree), `homa-tests-coverage` (gcov: 86.7 % of lines), sanitizer VMs (`-debug`: KASAN, KFENCE, KMEMLEAK, lockdep, UBSAN; `-kcsan`) for the smoke test and the pair lifecycle (found F13 and F14; KASAN names F8), and `homa-evidence`, one HTML report of all of it. The netem drop check accepts a quarter of the configured loss (0.1 % measured 0.04 % over 82k packets) |
 | 2026-10-31 | Fixes drafted on the fork: #26 (F12b), #27 (F13), #28 (F14); F12a is upstream #134. Gated with temporary `nix/patches` (all of F8, F11, F12a/b, F13, F14): 884/884 unit tests; `analysis-netdev` builds in-tree (gcc, clang, i386 W=1: 0 warnings); KASAN/lockdep smoke PASS and pair lifecycle with no sanitizer report (its 7 failures are echo 5/6 on the default qdisc, see above); KCSAN pair lifecycle PASS 3 of 3. `homaLib` drops a patch with no hunks in a subset (a `util/`-only fix in the module's source) |
-| 2026-11-07 | Rebased onto 5cb0ec2: F8, F11, F12a and round 4 (#137-#140) landed. John on #146: `mem_cgroup_from_sk` is not in 6.17.8, the kernel `main` is on; `homa-build-matrix` tested 6.12, 6.18 and 7.x but not that one, so it missed it. Added 6.17.8 (`kernelSrc`, BTF off: its libbpf fails on current glibc). Found F15. The VM results above predate this rebase |
+| 2026-11-07 | Rebased onto 5cb0ec2: F8, F11, F12a and round 4 (#137-#140) landed. John on #146: `mem_cgroup_from_sk` is not in 6.17.8, the kernel `main` is on; `homa-build-matrix` tested 6.12, 6.18 and 7.x but not that one, so it missed it. Added 6.17.8 (`kernelSrc`, BTF off: its libbpf fails on current glibc). Found F15 (drafted, fork #29). #146 fixed for 6.17 and #146-#148 force-pushed; CI green. The VM results above predate this rebase |
