@@ -8,7 +8,7 @@ John Ousterhout lands PRs by applying our commits to `main` himself, so a landed
 **CLOSED** on GitHub, not MERGED, and the commit keeps our authorship. Check the
 "Upstream commit" column, not the PR state.
 
-**Score: 22 of 23 landed; 3 open.**
+**Score: 22 of 24 landed; 4 open.**
 
 | Round | Sent | Landed | Rejected |
 |---|---|---|---|
@@ -133,8 +133,9 @@ about before sending code, since he plans to move `main` to the next LTS.
 
 ## Next
 
-F15 (`freed_pages` set but unused in the stripped `homa_pool_free_bufs`, W=1): drafted as fork
-[#29](https://github.com/randomizedcoder/HomaModule/pull/29), `fix/pool-freed-pages-strip`, waiting for review.
+F15 (`freed_pages` set but unused in the stripped `homa_pool_free_bufs`, W=1): fork
+[#29](https://github.com/randomizedcoder/HomaModule/pull/29), `fix/pool-freed-pages-strip`, sent upstream as
+[#149](https://github.com/PlatformLab/HomaModule/pull/149) (2026-11-08).
 
 Round 4 plan, eight candidates: [`round4/candidates.md`](round4/candidates.md).
 

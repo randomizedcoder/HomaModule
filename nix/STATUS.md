@@ -496,7 +496,7 @@ The in-tree W=1 builds (gcc, clang, i386) fail on it. `make __STRIP__=1` without
 
 Fix: the declaration and increment go inside `#ifndef __UPSTREAM__` blocks (not `__STRIP__`:
 `make __STRIP__=1` keeps the `tt_record4`, so CI's stripped build and unit tests failed on the first
-version). Drafted as fork #29
+version). Fork #29, sent upstream as #149 (2026-11-08)
 (`fix/pool-freed-pages-strip`); with it and #146, `analysis-netdev`'s gcc, clang and i386 W=1
 builds have 0 findings.
 
@@ -542,7 +542,7 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 19 | F13: walk the route table outside `peertab->lock`, sent (upstream #147) | A possible hard hang at netns exit; lockdep fails the KASAN VM until it is fixed | small | us → upstream |
 | 18 | F12: `strip.py` `#else` toggle (landed: 10dd9b7, #134, not ours) and `mem_cgroup_from_sk()`, sent (upstream #146) | The net-next files must build in-tree before any submission | small | us → upstream |
 | 20 | F14: `skb_queue_len_lockless()` and `READ_ONCE`/`WRITE_ONCE` on `tx_left`, sent (upstream #148) | KCSAN fails the pair lifecycle until the intended race is annotated | small | us → upstream |
-| 21 | F15: `freed_pages` only under `#ifndef __STRIP__` in `homa_pool_free_bufs` | `analysis-netdev`: the stripped source fails W=1 again | small | drafted (fork #29) |
+| 21 | F15: `freed_pages` only under `#ifndef __STRIP__` in `homa_pool_free_bufs` | `analysis-netdev`: the stripped source fails W=1 again | small | sent upstream #149 (fork #29) |
 | 12 | Keep `nix/fuzz/known-findings.txt` in step with upstream | Entries come out as fixes land, so the fuzz-mock gate stays meaningful; currently empty | ongoing | us |
 
 ---
