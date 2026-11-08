@@ -158,8 +158,9 @@ Every kernel series has its own targets, so you can build or boot exactly the on
 |---|---|---|---|---|
 | `7_3` (default) | nixpkgs `linuxPackages_latest` | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
 | `7_0`, `7_1`, `7_2` | kernel.org tarballs (`kernel/src.nix`) | ✅ compile check | — (no bootable kernel yet) | supported |
+| `6_17` | kernel.org tarball, 6.17.8 (`kernel/src.nix`) | ✅ compile check | — (no bootable kernel yet) | supported; the kernel Homa's README and CI name for `main` |
 | `6_12` | nixpkgs | ✅ builds | ✅ boots, smoke and pair tests pass | supported |
-| `6_18` | nixpkgs (6.18.57) | ❌ | — | stable backported the 7.x socket API changes; see [`STATUS.md`](STATUS.md) F1 |
+| `6_18` | nixpkgs (6.18.62) | ❌ | — | stable backported the 7.x socket API changes; see [`STATUS.md`](STATUS.md) F1 |
 | `6_1`, `6_6` | nixpkgs | ❌ | — | below Homa's supported range |
 | `local` | your checkout, `HOMA_LINUX_SRC=...` with `--impure` | ✅ compile check | — | e.g. net-next |
 
