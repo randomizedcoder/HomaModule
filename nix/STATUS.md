@@ -494,7 +494,9 @@ net/homa/homa_pool.c:361:13: error: variable 'freed_pages' set but not used [-We
 
 The in-tree W=1 builds (gcc, clang, i386) fail on it. `make __STRIP__=1` without W=1 builds.
 
-Fix: the declaration and increment go inside `#ifndef __STRIP__` blocks. Drafted as fork #29
+Fix: the declaration and increment go inside `#ifndef __UPSTREAM__` blocks (not `__STRIP__`:
+`make __STRIP__=1` keeps the `tt_record4`, so CI's stripped build and unit tests failed on the first
+version). Drafted as fork #29
 (`fix/pool-freed-pages-strip`); with it and #146, `analysis-netdev`'s gcc, clang and i386 W=1
 builds have 0 findings.
 
