@@ -507,6 +507,12 @@ KFENCE, KMEMLEAK and UBSAN report nothing; lockdep reports F13 from both sides (
 is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk learned
 `peertab->lock -> ht->lock`). So the run fails at dmesg and serial-log until F13 is fixed.
 
+2026-11-08, on 7.3.3 (nixpkgs f4a03c0) with #146-#149 applied: the KASAN/lockdep and KCSAN smoke
+tests pass; `homa-pair-lifecycle-kcsan` passes (one run); `homa-pair-lifecycle-debug` has no
+sanitizer report (dmesg and serial-log pass on both nodes, so F13 is fixed) and fails only the
+baseline and netem traffic phases with echo 5/6, the slow-guest effect below (baseline: 19813 DATA
+sent, 11425 received, `rpc_timeouts` 2; 0 with Homa's qdisc).
+
 - **Echo 5/6 on the default qdisc, 6/6 on Homa's.** These guests send far slower than the
   `net.homa.link_mbps` of 25000 that Homa assumes. Without Homa's qdisc and pacer, the
   client's fq_codel dropped 20032 Homa packets in the baseline alone (275 `data_xmit_errors`),
@@ -563,3 +569,4 @@ is `homa_route_free`, in an RCU callback, taking `peertab->lock` after the walk 
 | 2026-10-30 | Demo evidence: `analysis-netdev` (netdev's checks on the `make net-next` files: found F12, they do not build in-tree), `homa-tests-coverage` (gcov: 86.7 % of lines), sanitizer VMs (`-debug`: KASAN, KFENCE, KMEMLEAK, lockdep, UBSAN; `-kcsan`) for the smoke test and the pair lifecycle (found F13 and F14; KASAN names F8), and `homa-evidence`, one HTML report of all of it. The netem drop check accepts a quarter of the configured loss (0.1 % measured 0.04 % over 82k packets) |
 | 2026-10-31 | Fixes drafted on the fork: #26 (F12b), #27 (F13), #28 (F14); F12a is upstream #134. Gated with temporary `nix/patches` (all of F8, F11, F12a/b, F13, F14): 884/884 unit tests; `analysis-netdev` builds in-tree (gcc, clang, i386 W=1: 0 warnings); KASAN/lockdep smoke PASS and pair lifecycle with no sanitizer report (its 7 failures are echo 5/6 on the default qdisc, see above); KCSAN pair lifecycle PASS 3 of 3. `homaLib` drops a patch with no hunks in a subset (a `util/`-only fix in the module's source) |
 | 2026-11-07 | Rebased onto 5cb0ec2: F8, F11, F12a and round 4 (#137-#140) landed. John on #146: `mem_cgroup_from_sk` is not in 6.17.8, the kernel `main` is on; `homa-build-matrix` tested 6.12, 6.18 and 7.x but not that one, so it missed it. Added 6.17.8 (`kernelSrc`, BTF off: its libbpf fails on current glibc). Found F15 (drafted, fork #29). #146 fixed for 6.17 and #146-#148 force-pushed; CI green. The VM results above predate this rebase |
+| 2026-11-08 | flake.lock: nixpkgs f4a03c0 (6.12.116, 6.18.62, 7.3.3), microvm, flake-parts; README gets the 6_17 row (also on nix-pr). F15 sent upstream (#149). Sanitizer VMs rerun on 7.3.3 with #146-#149: no sanitizer reports; only the known slow-guest echo 5/6 phases fail in the KASAN pair lifecycle |
